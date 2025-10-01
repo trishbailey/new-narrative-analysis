@@ -196,7 +196,7 @@ def analyze_narratives(corpus, api_key):
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
     """Hybrid Classification: Grok labels seed, then ML model classifies the rest."""
     # 1. AI Seed Generation (Grok Labels a small sample)
-    st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using `{CLASSIFICATION_MODEL}`...")
+    st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using {CLASSIFICATION_MODEL}...")
     # Ensure sample size doesn't exceed available data
     actual_seed_size = min(AI_SEED_SAMPLE_SIZE, len(df_full))
     df_sample = df_full.sample(actual_seed_size, random_state=42).copy()
@@ -450,6 +450,53 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
         template='plotly_dark'
     )
     return fig
+def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n=5):
+    """
+    Generates a single horizontal stacked bar chart for one theme's top authors.
+    """
+    # Filter to this theme only
+    df_theme = df_viz[df_viz['NARRATIVE_TAG'] == theme].copy()
+    if df_theme.empty:
+        return None
+    
+    # Aggregate likes by Author for this theme
+    df_grouped = df_theme.groupby(author_col)[engagement_col].sum().reset_index(name='Author_Likes')
+    # Get top N authors + 'Other'
+    top_authors = df_grouped.nlargest(top_n, 'Author_Likes')
+    other_likes = df_grouped['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
+    if other_likes > 0:
+        other_row = pd.DataFrame({author_col: ['Other/Long Tail'], 'Author_Likes': [other_likes]})
+        df_top = pd.concat([top_authors, other_row], ignore_index=True)
+    else:
+        df_top = top_authors
+    
+    # Total for theme (for percentages)
+    theme_total = df_theme[engagement_col].sum()
+    df_top['Percentage'] = (df_top['Author_Likes'] / theme_total) * 100
+    
+    # Create stacked bar (horizontal, single bar for the theme)
+    fig = px.bar(
+        df_top,
+        x='Author_Likes',
+        y=author_col,
+        orientation='h',
+        title=f"{theme}: Top {top_n} Influencers by Likes",
+        labels={'Author_Likes': 'Likes', author_col: 'Influencer'},
+        height=400,
+        color=author_col,
+        color_discrete_sequence=px.colors.qualitative.Set3  # Compact palette
+    )
+    fig.update_traces(
+        hovertemplate=f'<b>%{{y}}</b><br>Likes: %{{x:,}}<br>Share: %{{customdata[0]:.1f}}%<extra></extra>',
+        customdata=df_top[['Percentage']]
+    )
+    fig.update_layout(
+        showlegend=False,  # No legend needed for single-theme bars
+        yaxis_title=None,
+        xaxis_title='Total Likes',
+        template='plotly_dark'
+    )
+    return fig
 # --- Streamlit UI and Workflow ---
 # Initialize Session State
 if 'df_full' not in st.session_state:
@@ -466,7 +513,6 @@ st.session_state.api_key = XAI_KEY
 # --- Application Title (FIX: Restored the main title here) ---
 st.title("Grok-Powered Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
-st.markdown("---")
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
     # --- API Key Check (Discreet) ---
@@ -574,10 +620,9 @@ with st.container():
     # Execution steps follow only if df_full is loaded
     if st.session_state.df_full is not None:
         # --- Narratives Extraction (Step 1) ---
-        st.markdown("---")
         st.header("Narratives Extraction")
         if not st.session_state.narrative_data:
-            if st.button(f"Start Narrative Extraction using `{GROK_MODEL}`", type="primary"):
+            if st.button(f"Start Narrative Extraction using {GROK_MODEL}", type="primary"):
                 # Take a sample of 100 posts for narrative generation
                 df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
                 corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
@@ -675,23 +720,24 @@ with st.container():
                     fig_line.update_layout(
                         xaxis_title="Date",
                         yaxis_title="Rolling Avg. Post Volume",
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.3,
+                            xanchor="center",
+                            x=0.5
+                        ),
                         template='plotly_dark'
                     )
                     st.plotly_chart(fig_line, use_container_width=True)
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
-                # 3. Stacked Bar Chart: Influencer Share of Likes
+                # 3. Stacked Bar Charts: Influencer Share per Theme (Separate charts)
                 st.markdown("### Influencer Share of Engagement")
-                st.plotly_chart(
-                    plot_stacked_author_share(
-                        df_viz,
-                        AUTHOR_COLUMN,
-                        'NARRATIVE_TAG',
-                        ENGAGEMENT_COLUMN,
-                        top_n=5
-                    ),
-                    use_container_width=True
-                )
+                for theme in df_viz['NARRATIVE_TAG'].unique():
+                    fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
+                    if fig_theme:
+                        st.plotly_chart(fig_theme, use_container_width=True)
                 # 4. Overall Top Authors by Likes
                 st.markdown("### Top 10 Overall Authors by Total Likes")
                 st.plotly_chart(
@@ -703,13 +749,13 @@ with st.container():
                     ),
                     use_container_width=True
                 )
-        # --- Insights from the Data (Step 3) ---
-        st.markdown("---")
-        st.header("Insights from the Data")
-        if st.button(f"Generate 5 Key Takeaways using `{GROK_MODEL}`", type="primary"):
-            data_summary_text = perform_data_crunching_and_summary(df_classified)
-            takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
-            if takeaways_list:
-                st.subheader("Executive Summary: 5 Key Takeaways")
-                for i, takeaway in enumerate(takeaways_list):
-                    st.markdown(f"**{i+1}.** {takeaway}")
+                # --- Insights from the Data (Step 3) - MOVED INSIDE AFTER CHARTS ---
+                st.markdown("---")
+                st.header("Insights from the Data")
+                if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}", type="primary"):
+                    data_summary_text = perform_data_crunching_and_summary(df_classified)
+                    takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
+                    if takeaways_list:
+                        st.subheader("Executive Summary: 5 Key Takeaways")
+                        for i, takeaway in enumerate(takeaways_list):
+                            st.markdown(f"**{i+1}.** {takeaway}")
