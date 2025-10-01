@@ -703,6 +703,7 @@ st.session_state.api_key = XAI_KEY
 # --- Title ---
 st.title("X Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data. Please note that it takes about 90 seconds to fully load and display all data.")
+st.caption("_Developed by Trish Bailey_")
 
 # --- Sidebar: Upload + Download ---
 with st.sidebar:
