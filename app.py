@@ -467,7 +467,6 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
     fig = finalize_figure(
         fig,
         title=f"Top {top_n} influencers by total likes",
-        subtitle="Colored by each author’s primary narrative theme",
         height=550
     )
     return fig
