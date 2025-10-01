@@ -713,4 +713,3 @@ with st.container():
                 st.subheader("Executive Summary: 5 Key Takeaways")
                 for i, takeaway in enumerate(takeaways_list):
                     st.markdown(f"**{i+1}.** {takeaway}")
-```
