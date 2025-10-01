@@ -33,6 +33,35 @@ DATE_COLUMN = 'Date'
 TIME_COLUMN = 'Time'
 # FIX: Explicit format confirmed to work for Meltwater date/time strings
 DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
+# --- Toxicity Keywords (angry/hateful/violent) - Greatly Expanded with Modern Slang ---
+TOXIC_KEYWORDS = [
+    # Core hate/violence terms
+    'hate', 'hateful', 'hatred', 'racist', 'sexist', 'homophobe', 'bigot', 'fascist',
+    'kill', 'murder', 'assassinate', 'slaughter', 'genocide', 'exterminate',
+    'violent', 'violence', 'rage', 'angry', 'fury', 'wrath', 'attack', 'beat',
+    'bomb', 'explode', 'shoot', 'stab', 'fight', 'war', 'terror', 'terrorist',
+    'die', 'dead', 'death', 'suffer', 'pain', 'hurt', 'bleed', 'burn',
+    'bitch', 'cunt', 'pussy', 'dick', 'asshole', 'fuck', 'shit', 'damn',
+    'nigger', 'chink', 'spic', 'kike', 'faggot', 'dyke', 'tranny',
+    'rape', 'molest', 'abuse', 'torment',
+    # Expanded racial/ethnic slurs (modern variants from common sources)
+    'abeed', 'abid', 'abo', 'abbo', 'afro engineering', 'ali baba', 'alligator bait', 'ang mo', 'ann', 'ape', 'apple', 'arapis', 'arabush', 'argie', 'armo', 'asing', 'aseng', 'ashke-nazi', 'aunt jemima', 'baiano', 'balija', 'bamboula', 'bambus', 'banaan', 'banana', 'banderite', 'barbarian', 'beaner', 'bimbo', 'bing', 'binghi', 'black buck', 'blackie', 'blatte', 'bluegum', 'boche', 'boerehater', 'bog', 'bohunk', 'bolita', 'boong', 'boonga', 'bootlip', 'bougnoule', 'bounty bar', 'bozgor', 'brillo pad', 'brownie', 'buckwheat', 'buddhahead', 'bulbash',
+    'camel jockey', 'camel-fucker', 'camelfucker', 'cap', 'checkerboard', 'cheddar man', 'cheeky monkey', 'chi-chi', 'chee-chee', 'chi chi', 'cheerio', 'cherry', 'chew', 'chief', 'chigga', 'chigger', 'chili eater', 'chink', 'chink eye', 'chino', 'choco', 'chocolate drop', 'cholo', 'chong', 'chonk', 'chonkasaurus', 'chonkosaurus', 'chubby bunny', 'chug', 'chugger', 'chumbo', 'chump', 'ciapaty', 'ciapak', 'cigar store indian', 'coconut', 'coon', 'coona', 'coonass', 'cooney', 'coonhound', 'coontown', 'copperhead', 'cotton picker', 'cracker', 'crackerjack', 'crackhead', 'crackpipe', 'crapaholic', 'craphead', 'cricket', 'crip', 'cro', 'cromag', 'crow', 'crumpet', 'crunky', 'curry muncher', 'curry nigger',
+    'dago', 'dego', 'darkie', 'darky', 'dawg', 'deadbeat', 'dengue', 'dengue fever', 'desi', 'dickhead', 'diesel', 'digger', 'dildo', 'dink', 'dip', 'dirty jew', 'dirty mexican', 'dirty sanchez', 'dixie', 'dog', 'dogbreath', 'dogface', 'dogfucker', 'doggy doo', 'dogman', 'doh', 'doh je', 'doh pei', 'doje', 'dolla', 'dollface', 'dolly', 'douche', 'douchebag', 'douchecanoe', 'douchelord', 'douchey', 'dove', 'doven', 'dovl', 'dow', 'drongo', 'dropkick', 'drug mule', 'druggie', 'druid', 'drummer boy', 'drygulch', 'dude', 'dudebro', 'dumbass', 'dumb blonde', 'dumb cluck', 'dumb fuck', 'dumb jock', 'dumbshit', 'dummy', 'dune coon', 'dung eater', 'dung heap', 'dungaree', 'dunk', 'dunkie', 'dunny', 'dusk', 'duster', 'dutch oven', 'dutchie', 'dweeb', 'dyke',
+    # Modern internet slang insults and toxicity
+    'simp', 'incel', 'cuck', 'beta', 'soyboy', 'chad', 'normie', 'cringe', 'based', 'redpilled', 'woke', 'snowflake', 'karens', 'thot', 'yeet', 'sus', 'cap', 'no cap', 'rizz', 'sigma', 'alpha', 'beta male', 'white knight', 'orbiter', 'friendzoned', 'clown', 'cope', 'seethe', 'dilate', 'yikes', 'yawn', 'lmao', 'rofl', 'kek', 'pwned', 'noob', 'gg', 'ez', 'trash', 'scrub', 'retard', 'tard', 'tarded', 'autist', 'asperg', 'spaz', 'spastic', 'mong', 'mongoloid', 'downie', 'troll', 'flamer', 'glowie', 'fed', 'sheeple', 'normcuck', 'volcel', 'mogged', 'looksmax', 'blackpill', 'doomer', 'bugman', 'npc', 'midwit',
+    # Gender/sexuality modern slurs
+    'trap', 'shemale', 'ladyboy', 'he-she', 'it', 'xir', 'ze', 'they/them', 'pronoun', 'cishet', 'cis scum', 'terf', 'tim', 'tucute', 'transtrender', 'egg', 'clocked', 'passoid', 'hsts', 'gira', 'handmaiden', 'peak trans', 'cotton ceiling', 'die cis scum', 'kill all men', 'male tears', 'mansplain', 'mansplaining', 'gaslight', 'gatekeep', 'girlboss', 'girlmath', 'boymath',
+    # Violence/threat modern slang
+    'clout chase', 'beef', 'diss', 'roast', 'cancel', 'dox', 'swat', 'raid', 'grief', 'flame war', 'shitpost', 'ragequit', 'tilt', 'smd', 'stfu', 'gtfo', 'nuke', 'yeet off a cliff', 'touch grass', 'log off', 'ratio', 'embarrassing', 'cringe compilation', 'fail', 'epic fail', 'owned', 'btfo', 'destroyed', 'salty', 'mad', 'pressing', 'fuming', 'melting down', 'crying', 'bawling', 'sobbing', 'triggered', 'schooled', 'humbled', 'cooked', 'done for', 'fucked up', 'screwed', 'royally fucked', 'assblasted', 'mindbroken',
+    # Political/extremist modern slang
+    'degen', 'chud', 'frogposter', 'groyper', 'pepe', 'wojak', 'soyjak', 'doomer', 'bloomer', 'zoomer', 'millennial', 'boomer', 'ok boomer', 'npc wojak', 'red scare', 'horseshoe theory', 'dirtbag left', 'dirtbag right', 'maga', 'trump derangement', 'biden crime family', 'deep state', 'qanon', 'pizzagate', 'groomer', 'grooming gang', 'great replacement', 'white genocide', 'kalergi', 'jew world order', 'zog', 'globalist', 'nwo', 'new world order', 'antifa', 'blm', 'acorn', 'soros', 'rothschild', 'illuminati', 'flat earth', 'vaxxed', 'antivax', 'plandemic', 'hoax', 'psyop', 'false flag', 'staged', 'crisis actor', 'glow in the dark', 'fedsurrection', 'ray epps', 'uniparty', 'rino', 'dino', 'nevertrumper', 'lincoln project', 'nevernicker', 'blueanon',
+    # Drug/addiction slang (hateful context)
+    'junkie', 'crackhead', 'methhead', 'tweaker', 'fiend', 'addict', 'doper', 'pothead', 'stoner', 'cokehead', 'heroin chic', 'chasing the dragon', 'speedball', 'shooting up', 'mainlining', 'track marks', 'overdose', 'nodding off', 'withdrawal', 'dts', 'cold turkey', 'rehab', 'relapse',
+    # General modern insults (additional)
+    'loser', 'lame', 'basic', 'tryhard', 'edgelord', 'contrarian', 'devil\'s advocate', 'concern troll', 'sea lion', 'tone troll', 'whataboutist', 'both sides', 'centrist', 'moderate', 'libtard', 'repubtard', 'socdem', 'ancom', 'mlm', 'tankie', 'dunkie', 'strawman', 'nuance', 'context', 'not all', 'all lives matter', 'blue lives matter', 'defund', 'abolish', 'icop', 'acop', 'thin blue line', 'back the blue', 'porky', 'class traitor', 'scab', 'rat', 'fink', 'snitch', 'grass', 'bent copper', 'dirty cop', 'badge bunny', 'copaganda', 'prison industrial complex', 'pic', 'school to prison pipeline', 'war on drugs', 'war on poverty', 'welfare queen', 'food stamp president', 'obama phone', 'trickle down', 'voodoo economics', 'supply side', 'austerity', 'neoliberal', 'shock doctrine', 'disaster capitalism', 'crony capitalism', 'corporatism'
+]
+TOXICITY_THRESHOLD = 0.01  # Density > this flags a post as toxic
 # --- Streamlit Theme Configuration (Light Mode) ---
 PRIMARY_COLOR = "#1E88E5" # Blue for primary buttons
 BG_COLOR = "#ffffff" # Main background
@@ -175,6 +204,27 @@ def finalize_figure(fig, title:str, subtitle:str|None=None, source:str|None=None
     return fig
 def wrap_text(s: str, width: int = 16) -> str:
     return "<br>".join(textwrap.wrap(s, width))
+# --- Toxicity Scoring Function ---
+def compute_toxicity_scores(df_viz):
+    """Compute toxicity density per post and aggregate by theme."""
+    def post_density(text):
+        if pd.isna(text) or not text:
+            return 0.0
+        words = text.lower().split()
+        if not words:
+            return 0.0
+        matches = sum(1 for kw in TOXIC_KEYWORDS if kw.lower() in text.lower())
+        return matches / len(words)
+    
+    df_viz['toxicity_density'] = df_viz['POST_TEXT'].apply(post_density)
+    df_viz['is_toxic'] = df_viz['toxicity_density'] > TOXICITY_THRESHOLD
+    
+    theme_toxicity = df_viz.groupby('NARRATIVE_TAG').agg(
+        Avg_Density=('toxicity_density', 'mean'),
+        Pct_Toxic_Posts=('is_toxic', 'mean') * 100
+    ).reset_index()
+    theme_toxicity = theme_toxicity.sort_values('Avg_Density', ascending=False)
+    return df_viz, theme_toxicity
 # --- Utility Functions ---
 # Exponential Backoff for API calls
 def call_grok_with_backoff(payload, api_key, max_retries=5):
@@ -505,6 +555,41 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
         height=380
     )
     return fig
+def plot_toxicity_by_theme(theme_toxicity):
+    """Bar chart for toxicity density per theme."""
+    fig = px.bar(
+        theme_toxicity,
+        x='NARRATIVE_TAG',
+        y='Avg_Density',
+        title='Toxicity Density by Narrative Theme',
+        labels={'Avg_Density': 'Average Toxic Keyword Density', 'NARRATIVE_TAG': 'Narrative Theme'},
+        height=500,
+        color='Avg_Density',
+        color_continuous_scale='Reds'  # Red for higher toxicity
+    )
+    # Wrap long x labels
+    def wrap_labels_bar(text):
+        return '<br>'.join(textwrap.wrap(text, 15))
+    fig.update_traces(marker_line_width=0)
+    fig.update_layout(
+        xaxis={
+            'categoryorder':'total descending',
+            'tickangle': 0,
+            'automargin': True,
+            'tickfont': {'size': 12},
+            'tickvals': theme_toxicity['NARRATIVE_TAG'].tolist(),
+            'ticktext': [wrap_labels_bar(t) for t in theme_toxicity['NARRATIVE_TAG']],
+        },
+        showlegend=False,
+        coloraxis_colorbar=dict(title="Density")
+    )
+    fig = finalize_figure(
+        fig,
+        title="Toxicity density by narrative theme",
+        subtitle="Average proportion of angry/hateful/violent keywords per post; sorted descending",
+        height=500
+    )
+    return fig
 # --- Streamlit UI and Workflow ---
 # Initialize Session State
 if 'df_full' not in st.session_state:
@@ -605,31 +690,30 @@ with st.container():
     if st.session_state.df_full is not None:
         # --- Narratives Extraction (Step 1) ---
         st.header("Narratives Extraction")
-        if not st.session_state.narrative_data:
+        if st.session_state.narrative_data is None:
             if st.button(f"Click here to start narrative extraction using {GROK_MODEL}", type="primary"):
-                df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
-                corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
-                narrative_list = analyze_narratives(corpus, st.session_state.api_key)
-                if narrative_list:
-                    st.session_state.narrative_data = narrative_list
-                    st.session_state.theme_titles = [item['narrative_title'] for item in narrative_list]
-                    st.success("Grok identified narrative themes from a sample set of 150 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics. (Python can handle much more volume than the LLMs.)")
-                    df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
-                    if df_classified is not None:
-                        st.session_state.classified_df = df_classified
-                        st.success("Hybrid classification complete. Dashboard generated.")
-                    st.rerun()
-            else:
-                st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
-        if st.session_state.narrative_data:
+                with st.spinner("Generating narratives from a sample of posts..."):
+                    df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
+                    corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
+                    narrative_list = analyze_narratives(corpus, st.session_state.api_key)
+                    if narrative_list:
+                        st.session_state.narrative_data = narrative_list
+                        st.session_state.theme_titles = [item['narrative_title'] for item in narrative_list]
+                st.rerun()
+        else:
             st.subheader("Identified Narrative Themes")
             for i, narrative in enumerate(st.session_state.narrative_data):
                 st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
+            st.success("Grok identified narrative themes from a sample set of 150 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics. (Python can handle much more volume than the LLMs.)")
         # --- Data Analysis by Narrative (Step 2) ---
         st.markdown("---")
         st.header("Data Analysis by Narrative")
-        if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
-            st.info("Classifying posts by narrative...")
+        if st.session_state.narrative_data is not None and st.session_state.classified_df is None:
+            with st.spinner("Classifying all posts by narrative theme..."):
+                df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
+                if df_classified is not None:
+                    st.session_state.classified_df = df_classified
+            st.rerun()
         if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
             df_classified = st.session_state.classified_df
             # Filter for visualization (exclude Other/Unrelated and require valid dates)
@@ -640,6 +724,8 @@ with st.container():
             if df_viz.empty:
                 st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
             else:
+                # Compute toxicity scores
+                df_viz, theme_toxicity = compute_toxicity_scores(df_viz)
                 st.subheader("Narrative Analysis Dashboard")
                 # 1) Post Volume by Theme (Bar)
                 st.markdown("### Post Volume by Theme")
@@ -709,13 +795,18 @@ with st.container():
                     st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
-                # 3) Stacked Bar Charts: Influencer Share per Theme (Top authors only)
+                # 3) Toxicity Density by Theme
+                st.markdown("### Toxicity Density by Narrative Theme")
+                fig_tox = plot_toxicity_by_theme(theme_toxicity)
+                st.plotly_chart(fig_tox, use_container_width=True, config={"displayModeBar": False})
+                st.caption(f"Based on {len(TOXIC_KEYWORDS)} keywords; density = toxic matches / total words per post.")
+                # 4) Stacked Bar Charts: Influencer Share per Theme (Top authors only)
                 st.markdown("### Influencer Share of Engagement (Top Authors Only)")
                 for theme in df_viz['NARRATIVE_TAG'].unique():
                     fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                     if fig_theme:
                         st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
-                # 4) Overall Top Authors by Likes
+                # 5) Overall Top Authors by Likes
                 st.markdown("### Top 10 Overall Authors by Total Likes")
                 fig_overall = plot_overall_author_ranking(
                     df_classified,
