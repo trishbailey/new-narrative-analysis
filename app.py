@@ -70,7 +70,7 @@ TEXT_COLOR = "#333333" # Main text
 HEADER_COLOR = "#111111" # Headers
 # --- Page Config ---
 st.set_page_config(
-    page_title="Grok Narrative Analysis Dashboard",
+    page_title="Narrative Analysis Dashboard",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={'About': "Narrative Analyzer for Meltwater Data"}
@@ -605,7 +605,7 @@ if 'data_summary_text' not in st.session_state:
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
 # --- Application Title ---
-st.title("Narrative Analysis Dashboard")
+st.title("X Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
