@@ -39,6 +39,7 @@ DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
 
 # --- Toxicity Keywords (expanded) ---
 TOXIC_KEYWORDS = [
+    # Core hate/violence terms
     'hate', 'hateful', 'hatred', 'racist', 'sexist', 'homophobe', 'bigot', 'fascist',
     'kill', 'murder', 'assassinate', 'slaughter', 'genocide', 'exterminate',
     'violent', 'violence', 'rage', 'angry', 'fury', 'wrath', 'attack', 'beat',
@@ -47,8 +48,22 @@ TOXIC_KEYWORDS = [
     'bitch', 'cunt', 'pussy', 'dick', 'asshole', 'fuck', 'shit', 'damn',
     'nigger', 'chink', 'spic', 'kike', 'faggot', 'dyke', 'tranny',
     'rape', 'molest', 'abuse', 'torment',
-    # (… full list preserved …)
-    'corporatism'
+    # Expanded racial/ethnic slurs (modern variants from common sources)
+    'abeed', 'abid', 'abo', 'abbo', 'afro engineering', 'ali baba', 'alligator bait', 'ang mo', 'ann', 'ape', 'apple', 'arapis', 'arabush', 'argie', 'armo', 'asing', 'aseng', 'ashke-nazi', 'aunt jemima', 'baiano', 'balija', 'bamboula', 'bambus', 'banaan', 'banana', 'banderite', 'barbarian', 'beaner', 'bimbo', 'bing', 'binghi', 'black buck', 'blackie', 'blatte', 'bluegum', 'boche', 'boerehater', 'bog', 'bohunk', 'bolita', 'boong', 'boonga', 'bootlip', 'bougnoule', 'bounty bar', 'bozgor', 'brillo pad', 'brownie', 'buckwheat', 'buddhahead', 'bulbash',
+    'camel jockey', 'camel-fucker', 'camelfucker', 'cap', 'checkerboard', 'cheddar man', 'cheeky monkey', 'chi-chi', 'chee-chee', 'chi chi', 'cheerio', 'cherry', 'chew', 'chief', 'chigga', 'chigger', 'chili eater', 'chink', 'chink eye', 'chino', 'choco', 'chocolate drop', 'cholo', 'chong', 'chonk', 'chonkasaurus', 'chonkosaurus', 'chubby bunny', 'chug', 'chugger', 'chumbo', 'chump', 'ciapaty', 'ciapak', 'cigar store indian', 'coconut', 'coon', 'coona', 'coonass', 'cooney', 'coonhound', 'coontown', 'copperhead', 'cotton picker', 'cracker', 'crackerjack', 'crackhead', 'crackpipe', 'crapaholic', 'craphead', 'cricket', 'crip', 'cro', 'cromag', 'crow', 'crumpet', 'crunky', 'curry muncher', 'curry nigger',
+    'dago', 'dego', 'darkie', 'darky', 'dawg', 'deadbeat', 'dengue', 'dengue fever', 'desi', 'dickhead', 'diesel', 'digger', 'dildo', 'dink', 'dip', 'dirty jew', 'dirty mexican', 'dirty sanchez', 'dixie', 'dog', 'dogbreath', 'dogface', 'dogfucker', 'doggy doo', 'dogman', 'doh', 'doh je', 'doh pei', 'doje', 'dolla', 'dollface', 'dolly', 'douche', 'douchebag', 'douchecanoe', 'douchelord', 'douchey', 'dove', 'doven', 'dovl', 'dow', 'drongo', 'dropkick', 'drug mule', 'druggie', 'druid', 'drummer boy', 'drygulch', 'dude', 'dudebro', 'dumbass', 'dumb blonde', 'dumb cluck', 'dumb fuck', 'dumb jock', 'dumbshit', 'dummy', 'dune coon', 'dung eater', 'dung heap', 'dungaree', 'dunk', 'dunkie', 'dunny', 'dusk', 'duster', 'dutch oven', 'dutchie', 'dweeb', 'dyke',
+    # Modern internet slang insults and toxicity
+    'simp', 'incel', 'cuck', 'beta', 'soyboy', 'chad', 'normie', 'cringe', 'based', 'redpilled', 'woke', 'snowflake', 'karens', 'thot', 'yeet', 'sus', 'cap', 'no cap', 'rizz', 'sigma', 'alpha', 'beta male', 'white knight', 'orbiter', 'friendzoned', 'clown', 'cope', 'seethe', 'dilate', 'yikes', 'yawn', 'lmao', 'rofl', 'kek', 'pwned', 'noob', 'gg', 'ez', 'trash', 'scrub', 'retard', 'tard', 'tarded', 'autist', 'asperg', 'spaz', 'spastic', 'mong', 'mongoloid', 'downie', 'troll', 'flamer', 'glowie', 'fed', 'sheeple', 'normcuck', 'volcel', 'mogged', 'looksmax', 'blackpill', 'doomer', 'bugman', 'npc', 'midwit',
+    # Gender/sexuality modern slurs
+    'trap', 'shemale', 'ladyboy', 'he-she', 'it', 'xir', 'ze', 'they/them', 'pronoun', 'cishet', 'cis scum', 'terf', 'tim', 'tucute', 'transtrender', 'egg', 'clocked', 'passoid', 'hsts', 'gira', 'handmaiden', 'peak trans', 'cotton ceiling', 'die cis scum', 'kill all men', 'male tears', 'mansplain', 'mansplaining', 'gaslight', 'gatekeep', 'girlboss', 'girlmath', 'boymath',
+    # Violence/threat modern slang
+    'clout chase', 'beef', 'diss', 'roast', 'cancel', 'dox', 'swat', 'raid', 'grief', 'flame war', 'shitpost', 'ragequit', 'tilt', 'smd', 'stfu', 'gtfo', 'nuke', 'yeet off a cliff', 'touch grass', 'log off', 'ratio', 'embarrassing', 'cringe compilation', 'fail', 'epic fail', 'owned', 'btfo', 'destroyed', 'salty', 'mad', 'pressing', 'fuming', 'melting down', 'crying', 'bawling', 'sobbing', 'triggered', 'schooled', 'humbled', 'cooked', 'done for', 'fucked up', 'screwed', 'royally fucked', 'assblasted', 'mindbroken',
+    # Political/extremist modern slang
+    'degen', 'chud', 'frogposter', 'groyper', 'pepe', 'wojak', 'soyjak', 'doomer', 'bloomer', 'zoomer', 'millennial', 'boomer', 'ok boomer', 'npc wojak', 'red scare', 'horseshoe theory', 'dirtbag left', 'dirtbag right', 'maga', 'trump derangement', 'biden crime family', 'deep state', 'qanon', 'pizzagate', 'groomer', 'grooming gang', 'great replacement', 'white genocide', 'kalergi', 'jew world order', 'zog', 'globalist', 'nwo', 'new world order', 'antifa', 'blm', 'acorn', 'soros', 'rothschild', 'illuminati', 'flat earth', 'vaxxed', 'antivax', 'plandemic', 'hoax', 'psyop', 'false flag', 'staged', 'crisis actor', 'glow in the dark', 'fedsurrection', 'ray epps', 'uniparty', 'rino', 'dino', 'nevertrumper', 'lincoln project', 'nevernicker', 'blueanon',
+    # Drug/addiction slang (hateful context)
+    'junkie', 'crackhead', 'methhead', 'tweaker', 'fiend', 'addict', 'doper', 'pothead', 'stoner', 'cokehead', 'heroin chic', 'chasing the dragon', 'speedball', 'shooting up', 'mainlining', 'track marks', 'overdose', 'nodding off', 'withdrawal', 'dts', 'cold turkey', 'rehab', 'relapse',
+    # General modern insults (additional)
+    'loser', 'lame', 'basic', 'tryhard', 'edgelord', 'contrarian', 'devil\'s advocate', 'concern troll', 'sea lion', 'tone troll', 'whataboutist', 'both sides', 'centrist', 'moderate', 'libtard', 'repubtard', 'socdem', 'ancom', 'mlm', 'tankie', 'dunkie', 'strawman', 'nuance', 'context', 'not all', 'all lives matter', 'blue lives matter', 'defund', 'abolish', 'icop', 'acop', 'thin blue line', 'back the blue', 'porky', 'class traitor', 'scab', 'rat', 'fink', 'snitch', 'grass', 'bent copper', 'dirty cop', 'badge bunny', 'copaganda', 'prison industrial complex', 'pic', 'school to prison pipeline', 'war on drugs', 'war on poverty', 'welfare queen', 'food stamp president', 'obama phone', 'trickle down', 'voodoo economics', 'supply side', 'austerity', 'neoliberal', 'shock doctrine', 'disaster capitalism', 'crony capitalism', 'corporatism'
 ]
 TOXICITY_THRESHOLD = 0.01  # Density > this flags a post as toxic
 
@@ -179,6 +194,42 @@ def finalize_figure(fig, title: str, subtitle: str | None = None, source: str | 
 def wrap_text(s: str, width: int = 16) -> str:
     return "<br>".join(textwrap.wrap(s, width))
 
+# --- Narrative Normalizer (prevents KeyError on missing/variant keys) ---
+def normalize_narratives(raw):
+    """
+    Normalize Grok output into a list of dicts with keys:
+      - 'narrative_title' (required)
+      - 'summary' (optional -> default '')
+    Accepts:
+      - list[dict] with variant keys
+      - list[str] (titles only)
+    Returns: list[{'narrative_title': str, 'summary': str}]
+    """
+    if not isinstance(raw, list):
+        return []
+
+    title_keys = {'narrative_title', 'title', 'narrative', 'theme', 'name'}
+    summary_keys = {'summary', 'desc', 'description', 'overview', 'rationale', 'explanation'}
+
+    out = []
+    for item in raw:
+        if isinstance(item, dict):
+            title = None
+            summary = ''
+            for k in title_keys:
+                if k in item and item[k]:
+                    title = str(item[k]).strip()
+                    break
+            for k in summary_keys:
+                if k in item and item[k]:
+                    summary = str(item[k]).strip()
+                    break
+            if title:
+                out.append({'narrative_title': title, 'summary': summary})
+        elif isinstance(item, str) and item.strip():
+            out.append({'narrative_title': item.strip(), 'summary': ''})
+    return out
+
 # --- Toxicity Scoring ---
 def compute_toxicity_scores(df_viz):
     def post_density(text):
@@ -289,11 +340,18 @@ def analyze_narratives(corpus, api_key):
         json_response = call_grok_with_backoff(payload, api_key)
     if json_response:
         try:
-            return json.loads(json_response)
+            parsed = json.loads(json_response)
         except json.JSONDecodeError:
             st.error("Failed to parse JSON response from Grok. Check the API output.")
             st.code(json_response)
             return None
+
+        normalized = normalize_narratives(parsed)
+        if not normalized:
+            st.error("Narrative parse/normalization produced no usable themes. Showing raw model output for debugging.")
+            st.code(json_response)
+            return None
+        return normalized
     return None
 
 # --- Hybrid Classification (LLM seed + LinearSVC) ---
@@ -632,7 +690,6 @@ def load_meltwater(uploaded) -> pd.DataFrame:
         if _has_required(df1):
             df = df1
         else:
-            # Build a helpful error
             have = set(df0.columns.astype(str).str.strip())
             missing = [c for c in REQUIRED_COLS if c not in have]
             raise ValueError(
@@ -732,23 +789,33 @@ with st.container():
                     narrative_list = analyze_narratives(corpus, st.session_state.api_key)
                     if narrative_list:
                         st.session_state.narrative_data = narrative_list
-                        st.session_state.theme_titles = [item['narrative_title'] for item in narrative_list]
+                        st.session_state.theme_titles = [
+                            item.get('narrative_title') for item in narrative_list if item.get('narrative_title')
+                        ]
                 st.rerun()
         else:
             st.subheader("Identified Narrative Themes")
             for i, narrative in enumerate(st.session_state.narrative_data):
-                st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
+                title = narrative.get('narrative_title', f"Theme {i+1}")
+                summary = narrative.get('summary', '')
+                if summary:
+                    st.markdown(f"**{i+1}. {title}**: {summary}")
+                else:
+                    st.markdown(f"**{i+1}. {title}**")
             st.success("Grok identified narrative themes from a sample set of 150 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics.")
 
         # --- Data Analysis by Narrative (Step 2) ---
         st.markdown("---")
         st.header("Data Analysis by Narrative")
         if st.session_state.narrative_data is not None and st.session_state.classified_df is None:
-            with st.spinner("Classifying all posts by narrative theme..."):
-                df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
-                if df_classified is not None:
-                    st.session_state.classified_df = df_classified
-            st.rerun()
+            if not st.session_state.theme_titles:
+                st.error("No valid narrative titles were produced. Please regenerate narratives.")
+            else:
+                with st.spinner("Classifying all posts by narrative theme..."):
+                    df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
+                    if df_classified is not None:
+                        st.session_state.classified_df = df_classified
+                st.rerun()
 
         if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
             df_classified = st.session_state.classified_df
