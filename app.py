@@ -405,7 +405,7 @@ with st.container(border=True):
             date_min = df['DATETIME'].min().strftime('%Y-%m-%d')
             date_max = df['DATETIME'].max().strftime('%Y-%m-%d')
 
-            st.success("File uploaded successfully!")
+            st.success("File uploaded successfully! ")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
@@ -511,7 +511,7 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
             title='Post Volume vs. Engagement (Normalized Likes)',
             labels={'value': 'Count / Normalized Likes', 'NARRATIVE_TAG': 'Narrative Theme'},
             height=500,
-            color_discrete_sequence=px.colors.qualitative.PlotlyExpress # Distinct colors
+            color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors
         )
         fig_bar.update_layout(xaxis={'categoryorder':'total descending'}, legend_title_text='Metric')
         st.plotly_chart(fig_bar, use_container_width=True)
