@@ -622,7 +622,7 @@ with st.container():
         # --- Narratives Extraction (Step 1) ---
         st.header("Narratives Extraction")
         if not st.session_state.narrative_data:
-            if st.button(f"Start Narrative Extraction using {GROK_MODEL}", type="primary"):
+            if st.button(f"Click here to start narrative extraction using {GROK_MODEL}", type="primary"):
                 # Take a sample of 100 posts for narrative generation
                 df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
                 corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
@@ -645,7 +645,7 @@ with st.container():
         st.header("Data Analysis by Narrative")
         # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
         if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
-            if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)", type="primary"):
+            if st.button(f"Click here to classify {len(st.session_state.df_full):,} posts by narrative", type="primary"):
                 df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
                 if df_classified is not None:
                     st.session_state.classified_df = df_classified
@@ -752,7 +752,7 @@ with st.container():
                 # --- Insights from the Data (Step 3) - MOVED INSIDE AFTER CHARTS ---
                 st.markdown("---")
                 st.header("Insights from the Data")
-                if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}", type="primary"):
+                if st.button(f"Click here to generate 5 key takeaways from the data", type="primary"):
                     data_summary_text = perform_data_crunching_and_summary(df_classified)
                     takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
                     if takeaways_list:
