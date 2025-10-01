@@ -96,6 +96,12 @@ code {
     padding: 2px 4px;
     border-radius: 4px;
 }
+/* --- FIX: Custom CSS for Readable API Status Text --- */
+/* Target the success/info markdown text that was previously dark blue */
+.stAlert > div > div > div > div > p {
+    color: white !important;
+}
+
 /* --- END Button Fix --- */
 </style>
 """, unsafe_allow_html=True)
@@ -566,61 +572,45 @@ st.markdown("---")
 
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
-    st.markdown("## Configuration & Data Upload")
     
     # --- API Key Check (Discreet) ---
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
     else:
-        st.success("Grok API Key loaded.")
+        st.info("API Key loaded successfully.") # FIX: Use white font for readable success status
 
-    # --- Upload Component ---
-    st.markdown("---")
-    st.markdown("#### 1. Upload File")
+    # --- 1. Upload File (NEW POSITION) ---
+    st.markdown("#### 1. File Upload")
     uploaded_file = st.file_uploader(
         "Upload Meltwater Data (.xlsx)", 
         type=['xlsx'],
-        help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
+        # FIX: The text inside the uploader is now white via CSS, but we use markdown here for the header
+        help="Upload your Meltwater file in Excel format (.xlsx) in the left sidebar."
     )
 
-    # --- Model Information (Using lilac text for visibility) ---
+    # --- 2. Download Button (FIX: Moved to sidebar and renamed) ---
+    if st.session_state.classified_df is not None:
+        st.markdown("---")
+        st.markdown("#### 2. Download Tagged Data")
+        # Using CSV export for wider compatibility, regardless of the input format
+        csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Tagged Data (CSV)",
+            data=csv,
+            file_name='meltwater_narrative_analysis.csv',
+            mime='text/csv',
+            type="primary"
+        )
+    
+    # --- Model Information (Placed near the bottom, after file actions) ---
     st.markdown("---")
-    st.markdown("#### 2. Model Configuration")
+    st.markdown("#### Model Configuration")
     st.markdown(f"""
     - **Theme Gen:** `<code>{GROK_MODEL}</code>` ({MAX_POSTS_FOR_ANALYSIS} posts)
     - **AI Seed:** `<code>{CLASSIFICATION_MODEL}</code>` ({AI_SEED_SAMPLE_SIZE} posts)
     - **ML Classif:** Local Scikit-learn
     """)
 
-    # --- Data Summary Placeholder ---
-    st.markdown("---")
-    st.markdown("#### 3. Data Summary")
-    if st.session_state.df_full is not None:
-        valid_dates = st.session_state.df_full['DATETIME'].dropna()
-        date_min = valid_dates.min().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
-        date_max = valid_dates.max().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
-        
-        st.markdown(f"""
-        - **Total Rows:** {st.session_state.df_full.shape[0]:,}
-        - **Date Span:** {date_min} to {date_max}
-        """)
-        
-        # --- Download Button (FIX: Moved to sidebar and renamed) ---
-        if st.session_state.classified_df is not None:
-            st.markdown("---")
-            st.markdown("#### 4. Download")
-            # Using CSV export for wider compatibility, regardless of the input format
-            csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download Tagged Data (CSV)",
-                data=csv,
-                file_name='meltwater_narrative_analysis.csv',
-                mime='text/csv',
-                type="primary"
-            )
-
-    else:
-        st.info("Upload file to see summary.")
 
 # --- STOP APP IF NO KEY ---
 if not st.session_state.api_key:
@@ -682,6 +672,20 @@ with st.container():
             st.session_state.df_full = df.copy()
             st.success("File uploaded successfully!")
             
+            # --- DATA SUMMARY RELOCATED HERE (FIX) ---
+            data_rows = df.shape[0]
+            valid_dates = df['DATETIME'].dropna()
+            date_min = valid_dates.min().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
+            date_max = valid_dates.max().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
+
+            st.markdown("#### File Data Summary")
+            st.markdown(f"""
+            - **Total Rows Processed:** {data_rows:,}
+            - **Date Span:** {date_min} to {date_max}
+            """)
+            st.markdown("---")
+            # --- END DATA SUMMARY RELOCATED ---
+
             # Clear previous results when a new file is uploaded
             st.session_state.narrative_data = None
             st.session_state.classified_df = None
