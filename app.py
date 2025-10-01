@@ -605,7 +605,7 @@ if 'data_summary_text' not in st.session_state:
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
 # --- Application Title ---
-st.title("Grok-Powered Narrative Analysis Dashboard")
+st.title("Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
