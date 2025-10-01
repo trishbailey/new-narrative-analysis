@@ -31,13 +31,14 @@ TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
-TIME_COLUMN = 'Time'
+# REMOVED: TIME_COLUMN = 'Time'
 
 # --- Streamlit Setup ---
 st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
-    initial_sidebar_state="expanded"
+    # FIX: Set the sidebar to auto or collapsed to hide it completely or ensure it's not the focus
+    initial_sidebar_state="collapsed" 
 )
 st.title("Grok-Powered Narrative Analyzer")
 st.markdown("Upload your Meltwater data to perform a 3-step thematic and quantitative analysis using Grok AI and hybrid ML.")
@@ -333,27 +334,10 @@ if 'classified_df' not in st.session_state:
 if 'data_summary_text' not in st.session_state:
     st.session_state.data_summary_text = None
 
-# --- Sidebar Inputs ---
-with st.sidebar:
-    st.header("Configuration")
-    
-    # API Key Input - prioritizes env var
-    XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
-    key_placeholder = "API Key not found in environment." if not XAI_KEY else "Key loaded from environment."
-    api_key = st.text_input(
-        "XAI/Grok API Key", 
-        type="password",
-        value=XAI_KEY,
-        placeholder=key_placeholder
-    )
-    st.session_state.api_key = api_key
 
-    st.markdown("---")
-    st.subheader("Model Usage")
-    st.write(f"Theme Generation (Step 1): `{GROK_MODEL}` ({MAX_POSTS_FOR_ANALYSIS} posts)")
-    st.write(f"AI Seed Training (Step 2/Phase 1): `{CLASSIFICATION_MODEL}` ({AI_SEED_SAMPLE_SIZE} posts)")
-    st.write(f"ML Classification (Step 2/Phase 2): Local Scikit-learn (Full Dataset)")
-    st.write(f"Executive Synthesis (Step 3): `{GROK_MODEL}` (Data Summary)")
+# FIX: Check for API key securely outside of the sidebar
+XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
+st.session_state.api_key = XAI_KEY
 
 
 # --- Step 0: File Upload & Setup ---
@@ -367,9 +351,15 @@ uploaded_file = st.file_uploader(
     help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
 )
 
+# --- Security and API Key Check ---
+if not st.session_state.api_key:
+    st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable for the application to run.")
+    st.stop()
+
+
 # Container for upload feedback
 with st.container(border=True):
-    st.info("👈 Upload your Meltwater data to begin the 3-step analysis.")
+    st.info("Upload your Meltwater data to begin the 3-step analysis.")
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
@@ -390,23 +380,36 @@ with st.container(border=True):
             df.columns = df.columns.str.strip() 
 
             # Check for essential columns after reading
-            required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
+            required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN]
             if not all(col in df.columns for col in required_cols):
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 # Providing the exact names the code is looking for to aid debugging
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
             # Combine Date and Time
-            # FIX: Robust Date Parsing - removing format string and relying on infer_datetime_format
-            df['DATETIME'] = pd.to_datetime(
-                df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), 
-                errors='coerce', 
-                infer_datetime_format=True, # Let Pandas figure out the format
-                dayfirst=True # Assume day/month ordering common in exports
-            )
+            # FIX: Robust Date Parsing - Iterating over formats
             
-            # IMPORTANT: Do not drop rows yet! This line was moved down to ensure we calculate 
-            # stats on all uploaded rows, even those without a date.
+            # Use only the Date column (and assume any Time column data is now handled by Excel itself)
+            date_series = df[DATE_COLUMN].astype(str)
+            
+            # List of inferenced formats to try (from most common to generic)
+            date_formats_to_try = [
+                # Assumption 1: Day/Month/Year (e.g., 23-Sep-2025)
+                {'errors': 'coerce', 'infer_datetime_format': True, 'dayfirst': True},
+                # Assumption 2: Month/Day/Year (Standard US/Excel)
+                {'errors': 'coerce', 'infer_datetime_format': True, 'dayfirst': False},
+            ]
+            
+            final_datetime = pd.Series([pd.NaT] * len(df))
+            
+            # Perform iterative parsing to find the correct format
+            for params in date_formats_to_try:
+                current_attempt = pd.to_datetime(date_series, **params)
+                # Update final_datetime only where NaT currently exists
+                final_datetime = final_datetime.combine_first(current_attempt)
+            
+            # Replace the DATETIME column with the best-effort result
+            df['DATETIME'] = final_datetime
             
             # Create a combined text column
             df['POST_TEXT'] = df.apply(
@@ -421,8 +424,7 @@ with st.container(border=True):
             
             data_rows = df.shape[0]
             
-            # --- FIX: Safe Date Calculation ---
-            # Now safe because we filter for valid dates before calling min/max/strftime
+            # --- Safe Date Calculation ---
             valid_dates = df['DATETIME'].dropna()
             if not valid_dates.empty:
                 date_min = valid_dates.min().strftime('%Y-%m-%d')
@@ -430,10 +432,10 @@ with st.container(border=True):
             else:
                 date_min = "N/A (No valid dates)"
                 date_max = "N/A (No valid dates)"
-            # --- END FIX ---
+            # --- END Safe Date Calculation ---
 
 
-            st.success("File uploaded successfully! ")
+            st.success("File uploaded successfully!")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
@@ -451,6 +453,16 @@ with st.container(border=True):
 if st.session_state.df_full is None:
     st.stop()
 
+# --- Model Information (Moved from Sidebar) ---
+with st.expander("View Model Configuration"):
+    st.subheader("Model Usage")
+    st.markdown(f"""
+    - **Theme Generation (Step 1):** `{GROK_MODEL}` ({MAX_POSTS_FOR_ANALYSIS} posts)
+    - **AI Seed Training (Step 2/Phase 1):** `{CLASSIFICATION_MODEL}` ({AI_SEED_SAMPLE_SIZE} posts)
+    - **ML Classification (Step 2/Phase 2):** Local Scikit-learn (Full Dataset)
+    - **Executive Synthesis (Step 3):** `{GROK_MODEL}` (Data Summary)
+    """)
+
 
 # --- Step 1: Generate Themes ---
 st.markdown("---")
@@ -463,9 +475,7 @@ else:
     # Logic for starting Step 1
     if not st.session_state.narrative_data:
         if st.button(f"Start Theme Generation using {GROK_MODEL}"):
-            if not st.session_state.api_key:
-                st.error("Please enter your XAI/Grok API Key in the sidebar.")
-                st.stop()
+            # Key check already done at the top, just need to run
             
             # Take a sample of 100 posts for narrative generation
             df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
@@ -496,9 +506,7 @@ st.header("Step 2: Hybrid Classification & Dashboard")
 # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
 if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
     if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)"):
-        if not st.session_state.api_key:
-            st.error("Please enter your XAI/Grok API Key in the sidebar.")
-            st.stop()
+        # Key check already done at the top, just need to run
         
         df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
         
@@ -551,36 +559,40 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
         # 2. Line Graph: Trend Over Time (Volume)
         st.markdown("### 2. Volume and Likes Trend Over Time (7-Day Rolling Average)")
 
+        # Group data by day and aggregate volume/likes
         df_trends = df_viz.set_index('DATETIME').resample('D').agg(
             Post_Volume=('POST_TEXT', 'size'),
             Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
         ).reset_index()
         
-        # Calculate Rolling Averages
-        df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7).mean()
-        df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7).mean()
+        if not df_trends.empty:
+            # Calculate Rolling Averages
+            df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7).mean()
+            df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7).mean()
 
-        # Normalize Likes for visualization
-        max_volume_roll = df_trends['Volume_Roll_Avg'].max()
-        df_trends['Normalized_Likes_Roll_Avg'] = (df_trends['Likes_Roll_Avg'] / df_trends['Likes_Roll_Avg'].max()) * max_volume_roll
-        
-        # Melt data for Plotly to use a single color dimension
-        df_melted = df_trends.melt(id_vars='DATETIME', 
-                                    value_vars=['Volume_Roll_Avg', 'Normalized_Likes_Roll_Avg'],
-                                    var_name='Metric', 
-                                    value_name='Value')
+            # Normalize Likes for visualization
+            max_volume_roll = df_trends['Volume_Roll_Avg'].max()
+            df_trends['Normalized_Likes_Roll_Avg'] = (df_trends['Likes_Roll_Avg'] / df_trends['Likes_Roll_Avg'].max()) * max_volume_roll
+            
+            # Melt data for Plotly to use a single color dimension
+            df_melted = df_trends.melt(id_vars='DATETIME', 
+                                        value_vars=['Volume_Roll_Avg', 'Normalized_Likes_Roll_Avg'],
+                                        var_name='Metric', 
+                                        value_name='Value')
 
-        fig_line = px.line(
-            df_melted, 
-            x='DATETIME', 
-            y='Value', 
-            color='Metric',
-            title='Rolling 7-Day Average: Posts vs. Engagement',
-            labels={'Value': 'Count / Normalized Likes', 'DATETIME': 'Date'},
-            height=500,
-            color_discrete_sequence=['#4B0082', '#DC143C'] # Deep Purple for Volume, Crimson for Likes
-        )
-        st.plotly_chart(fig_line, use_container_width=True)
+            fig_line = px.line(
+                df_melted, 
+                x='DATETIME', 
+                y='Value', 
+                color='Metric',
+                title='Rolling 7-Day Average: Posts vs. Engagement',
+                labels={'Value': 'Count / Normalized Likes', 'DATETIME': 'Date'},
+                height=500,
+                color_discrete_sequence=['#4B0082', '#DC143C'] # Deep Purple for Volume, Crimson for Likes
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+        else:
+            st.warning("Trend analysis requires posts spread over multiple days with valid dates, which was not found.")
 
         # 3, 4, 5. Author Leaderboards
         st.markdown("### Author & Theme Leaderboards")
