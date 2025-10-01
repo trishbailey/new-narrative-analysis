@@ -33,15 +33,15 @@ TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
-# REMOVED: TIME_COLUMN 
+TIME_COLUMN = 'Time' # RESTORED: Needed for accurate date parsing
+DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p' # FIX: Explicit format for robust parsing
 
 # --- Streamlit Setup ---
 st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
-    # Set the initial state to collapsed for a clean, secure start
-    initial_sidebar_state="collapsed", 
-    # Attempt to enforce dark theme and appealing colors
+    # FIX: Set the initial state to expanded to make it open by default
+    initial_sidebar_state="expanded", 
     menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
 st.markdown("""
@@ -56,7 +56,7 @@ h1, h2, h3, h4, h5, h6, .stMarkdown {
 }
 /* Adjust expander styling to look better in dark mode */
 .streamlit-expander {
-    background-color: #2c2c2c;
+    background-color: #3c3c3c; /* Slightly darker element background */
     border-radius: 8px;
     padding: 10px;
 }
@@ -64,13 +64,19 @@ h1, h2, h3, h4, h5, h6, .stMarkdown {
 .js-plotly-plot {
     background-color: #1e1e1e !important; 
 }
-/* Custom style for the sidebar content to look visually appealing */
+/* FIX: Custom style for the sidebar background to be a lighter dark gray */
+section[data-testid="stSidebar"] {
+    background-color: #2c2c2c; /* Lighter dark gray */
+}
+/* Custom style for the sidebar content container */
 .sidebar .stContainer {
-    background-color: #2c2c2c; /* A slightly lighter dark background */
+    background-color: #2c2c2c; 
     border-radius: 8px;
     padding: 15px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
 }
+/* FIX: Ensure primary buttons use app accent color and high-contrast text */
+/* st.button(type="primary") handles the color, this ensures consistency */
 </style>
 """, unsafe_allow_html=True)
 
@@ -604,19 +610,19 @@ with st.container():
             df.columns = df.columns.str.strip() 
 
             # Check for essential columns after reading
-            required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN]
+            required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
             if not all(col in df.columns for col in required_cols):
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 # Providing the exact names the code is looking for to aid debugging
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
-            # --- Date Parsing (REVERTED TO PROVEN FIX: DD-Mon-YYYY) ---
-            date_series = df[DATE_COLUMN].astype(str)
+            # --- Date Parsing (FIXED: Restore Time column and use explicit format) ---
+            date_time_series = df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str)
             
-            # FIX: Use the specific, successful format string: DD-Mon-YYYY
+            # FIX: Use the specific, successful format string: DD-Mon-YYYY HH:MM:PM
             df['DATETIME'] = pd.to_datetime(
-                date_series, 
-                format='%d-%b-%Y', # Explicitly using the DD-Mon-YYYY format
+                date_time_series, 
+                format=DATE_TIME_FORMAT, # Explicitly using the '%d-%b-%Y %I:%M%p' format
                 errors='coerce' # Set invalid parsing to NaT
             )
             
@@ -656,7 +662,7 @@ st.markdown("---")
 st.header("1. Narratives Extraction")
 
 if not st.session_state.narrative_data:
-    if st.button(f"Start Narrative Extraction using {GROK_MODEL}"):
+    if st.button(f"Start Narrative Extraction using {GROK_MODEL}", type="primary"):
         
         # Take a sample of 100 posts for narrative generation
         df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
@@ -687,7 +693,7 @@ st.header("2. Data Analysis by Narrative")
 
 # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
 if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
-    if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)"):
+    if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)", type="primary"):
         
         df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
         
@@ -818,7 +824,7 @@ st.markdown("---")
 st.header("3. Insights from the Data")
     
 if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
-    if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}"):
+    if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}", type="primary"):
         
         data_summary_text = perform_data_crunching_and_summary(st.session_state.classified_df)
 
@@ -839,4 +845,5 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
         data=csv,
         file_name='meltwater_narrative_analysis.csv',
         mime='text/csv',
+        type="primary"
     )
