@@ -75,8 +75,28 @@ section[data-testid="stSidebar"] {
     padding: 15px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
 }
-/* FIX: Ensure primary buttons use app accent color and high-contrast text */
-/* st.button(type="primary") handles the color, this ensures consistency */
+
+/* --- FIX: Custom CSS for Dark Purple Primary Buttons --- */
+/* Target the primary button's background color */
+.stButton>button.primary {
+    background-color: #581845; /* Deep Purple */
+    border-color: #721e58;     /* Slightly lighter border */
+    color: white;              /* Ensure text remains white */
+}
+.stButton>button.primary:hover {
+    background-color: #721e58; /* Hover state for feedback */
+    border-color: #581845;
+}
+
+/* --- FIX: Custom CSS for Model Name Highlight (Lilac Text) --- */
+/* Targeting Streamlit's code block rendering within the model configuration text */
+code {
+    background-color: #444444; /* Darker background for contrast */
+    color: #c3b1e3; /* Soft Lilac color */
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+/* --- END Button Fix --- */
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,7 +226,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     """Hybrid Classification: Grok labels seed, then ML model classifies the rest."""
     
     # 1. AI Seed Generation (Grok Labels a small sample)
-    st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using {CLASSIFICATION_MODEL}...")
+    st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using `{CLASSIFICATION_MODEL}`...")
     
     # Ensure sample size doesn't exceed available data
     actual_seed_size = min(AI_SEED_SAMPLE_SIZE, len(df_full))
@@ -558,12 +578,12 @@ with st.sidebar:
         help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
     )
 
-    # --- Model Information ---
+    # --- Model Information (Using lilac text for visibility) ---
     st.markdown("---")
     st.markdown("#### 2. Model Configuration")
     st.markdown(f"""
-    - **Theme Gen:** `{GROK_MODEL}` ({MAX_POSTS_FOR_ANALYSIS} posts)
-    - **AI Seed:** `{CLASSIFICATION_MODEL}` ({AI_SEED_SAMPLE_SIZE} posts)
+    - **Theme Gen:** `<code>{GROK_MODEL}</code>` ({MAX_POSTS_FOR_ANALYSIS} posts)
+    - **AI Seed:** `<code>{CLASSIFICATION_MODEL}</code>` ({AI_SEED_SAMPLE_SIZE} posts)
     - **ML Classif:** Local Scikit-learn
     """)
 
@@ -579,6 +599,21 @@ with st.sidebar:
         - **Total Rows:** {st.session_state.df_full.shape[0]:,}
         - **Date Span:** {date_min} to {date_max}
         """)
+        
+        # --- Download Button (FIX: Moved to sidebar and renamed) ---
+        if st.session_state.classified_df is not None:
+            st.markdown("---")
+            st.markdown("#### 4. Download")
+            # Using CSV export for wider compatibility, regardless of the input format
+            csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Tagged Data (CSV)",
+                data=csv,
+                file_name='meltwater_narrative_analysis.csv',
+                mime='text/csv',
+                type="primary"
+            )
+
     else:
         st.info("Upload file to see summary.")
 
@@ -662,6 +697,7 @@ st.markdown("---")
 st.header("1. Narratives Extraction")
 
 if not st.session_state.narrative_data:
+    # FIX: Use primary button type for custom purple color
     if st.button(f"Start Narrative Extraction using {GROK_MODEL}", type="primary"):
         
         # Take a sample of 100 posts for narrative generation
@@ -693,6 +729,7 @@ st.header("2. Data Analysis by Narrative")
 
 # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
 if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
+    # FIX: Use primary button type for custom purple color
     if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)", type="primary"):
         
         df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
@@ -824,6 +861,7 @@ st.markdown("---")
 st.header("3. Insights from the Data")
     
 if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
+    # FIX: Use primary button type for custom purple color
     if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}", type="primary"):
         
         data_summary_text = perform_data_crunching_and_summary(st.session_state.classified_df)
@@ -836,14 +874,5 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
                 st.markdown(f"**{i+1}.** {takeaway}")
             
     # --- Data Download ---
-    st.markdown("---")
-    st.markdown("### Download Classified Data")
-    # Using CSV export for wider compatibility, regardless of the input format
-    csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Download Classified Data (CSV)",
-        data=csv,
-        file_name='meltwater_narrative_analysis.csv',
-        mime='text/csv',
-        type="primary"
-    )
+    # FIX: The download button is now in the sidebar (Section 4)
+    pass
