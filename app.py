@@ -336,7 +336,7 @@ def analyze_narratives(corpus, api_key):
         },
         "temperature": 0.5,
     }
-    with st.spinner("Hold on, we are generating your narratives. They should be ready in about 60 seconds."):
+    with st.spinner("Generating narrative themes from a sample of posts..."):
         json_response = call_grok_with_backoff(payload, api_key)
     if json_response:
         try:
@@ -353,6 +353,74 @@ def analyze_narratives(corpus, api_key):
             return None
         return normalized
     return None
+
+# --- Theme Explanations (LLM) ---
+def generate_theme_explanations(corpus_sample: str, theme_titles: list[str], api_key: str):
+    """
+    Produce 2–3 sentence explanations for each theme title.
+    Returns list of {'narrative_title': str, 'explanation': str}
+    """
+    if not theme_titles:
+        return []
+
+    titles_json = json.dumps(theme_titles, ensure_ascii=False)
+    system_prompt = (
+        "You are an experienced OSINT analyst. Based ONLY on the provided corpus sample, "
+        "write 2–3 sentence, factual explanations for each theme title. "
+        "Do not speculate. Do not add sources. Return a JSON array of objects with "
+        "keys: narrative_title, explanation. The narrative_title must exactly match the input title."
+    )
+    user_query = (
+        f"Corpus sample:\n{corpus_sample}\n\n"
+        f"Theme titles (JSON array): {titles_json}"
+    )
+    payload = {
+        "model": GROK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query}
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "narrative_title": {"type": "STRING"},
+                        "explanation": {"type": "STRING"}
+                    },
+                    "required": ["narrative_title", "explanation"]
+                }
+            }
+        },
+        "temperature": 0.3
+    }
+    with st.spinner("Drafting brief explanations for each theme..."):
+        json_response = call_grok_with_backoff(payload, api_key)
+    if not json_response:
+        return []
+
+    try:
+        data = json.loads(json_response)
+    except json.JSONDecodeError:
+        st.warning("Could not parse theme explanations JSON; skipping.")
+        return []
+
+    # Normalize to exact mapping and preserve order of theme_titles
+    exp_map = {}
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                t = str(item.get("narrative_title", "")).strip()
+                e = str(item.get("explanation", "")).strip()
+                if t and e:
+                    exp_map[t] = e
+
+    result = []
+    for t in theme_titles:
+        result.append({"narrative_title": t, "explanation": exp_map.get(t, "")})
+    return result
 
 # --- Hybrid Classification (LLM seed + LinearSVC) ---
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
@@ -615,10 +683,18 @@ if 'df_full' not in st.session_state:
     st.session_state.df_full = None
 if 'narrative_data' not in st.session_state:
     st.session_state.narrative_data = None
+if 'theme_titles' not in st.session_state:
+    st.session_state.theme_titles = []
+if 'theme_explanations' not in st.session_state:
+    st.session_state.theme_explanations = None
 if 'classified_df' not in st.session_state:
     st.session_state.classified_df = None
 if 'data_summary_text' not in st.session_state:
     st.session_state.data_summary_text = None
+if 'takeaways_list' not in st.session_state:
+    st.session_state.takeaways_list = None
+if 'corpus_sample' not in st.session_state:
+    st.session_state.corpus_sample = None
 
 # --- API Key ---
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
@@ -747,8 +823,9 @@ def load_meltwater(uploaded) -> pd.DataFrame:
 
     return df
 
-# --- Main App Logic ---
+# --- Main App Logic (Automatic step-chaining) ---
 with st.container():
+    # 0) Load file (once)
     if st.session_state.df_full is None:
         try:
             st.info("Loading file...")
@@ -766,156 +843,179 @@ with st.container():
             st.markdown(f"- **Total Rows Processed:** {data_rows:,}\n- **Date Span:** {date_min} to {date_max}")
             st.markdown("---")
 
-            # Reset downstream state
-            st.session_state.narrative_data = None
-            st.session_state.classified_df = None
-            st.session_state.data_summary_text = None
+            # Prepare a fixed sample corpus for LLM steps (narratives + explanations)
+            df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
+            st.session_state.corpus_sample = ' | '.join(df_sample['POST_TEXT'].tolist())
 
+            # Trigger rerun to continue automatically
             st.rerun()
         except Exception as e:
             st.error(f"Error processing file: {e}")
             st.session_state.df_full = None
             st.stop()
 
-    # Continue only if df_full is loaded
-    if st.session_state.df_full is not None:
-        # --- Narratives Extraction (Step 1) ---
+    # 1) Narratives Extraction (auto)
+    if st.session_state.df_full is not None and st.session_state.narrative_data is None:
+        narrative_list = analyze_narratives(st.session_state.corpus_sample, st.session_state.api_key)
+        if narrative_list:
+            st.session_state.narrative_data = narrative_list
+            st.session_state.theme_titles = [
+                item.get('narrative_title') for item in narrative_list if item.get('narrative_title')
+            ]
+        st.rerun()
+
+    # 1a) Theme Explanations (auto, not used for charts)
+    if st.session_state.narrative_data is not None and st.session_state.theme_explanations is None:
+        st.session_state.theme_explanations = generate_theme_explanations(
+            st.session_state.corpus_sample,
+            st.session_state.theme_titles,
+            st.session_state.api_key
+        )
+        st.rerun()
+
+    # Present identified themes + explanations
+    if st.session_state.narrative_data is not None:
         st.header("Narratives Extraction")
-        if st.session_state.narrative_data is None:
-            if st.button(f"Click here to start narrative extraction using {GROK_MODEL}", type="primary"):
-                with st.spinner("Generating narratives from a sample of posts..."):
-                    df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
-                    corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
-                    narrative_list = analyze_narratives(corpus, st.session_state.api_key)
-                    if narrative_list:
-                        st.session_state.narrative_data = narrative_list
-                        st.session_state.theme_titles = [
-                            item.get('narrative_title') for item in narrative_list if item.get('narrative_title')
-                        ]
-                st.rerun()
-        else:
-            st.subheader("Identified Narrative Themes")
-            for i, narrative in enumerate(st.session_state.narrative_data):
-                title = narrative.get('narrative_title', f"Theme {i+1}")
-                summary = narrative.get('summary', '')
-                if summary:
-                    st.markdown(f"**{i+1}. {title}**: {summary}")
-                else:
-                    st.markdown(f"**{i+1}. {title}**")
-            st.success("Grok identified narrative themes from a sample set of 150 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics.")
+        st.subheader("Identified Narrative Themes")
+        # Build a mapping for explanations for quick lookup
+        exp_map = {}
+        if st.session_state.theme_explanations:
+            for item in st.session_state.theme_explanations:
+                t = item.get('narrative_title', '')
+                e = item.get('explanation', '')
+                if t:
+                    exp_map[t] = e
 
-        # --- Data Analysis by Narrative (Step 2) ---
+        for i, narrative in enumerate(st.session_state.narrative_data):
+            title = narrative.get('narrative_title', f"Theme {i+1}")
+            short_summary = narrative.get('summary', '').strip()
+            st.markdown(f"**{i+1}. {title}**")
+            # Show either the LLM-provided summary or the generated explanation (prefer explanation if present)
+            long_expl = exp_map.get(title, "")
+            if long_expl:
+                st.markdown(long_expl)
+            elif short_summary:
+                st.markdown(short_summary)
+        st.success("Themes identified. Proceeding to full-dataset tagging and analytics...")
         st.markdown("---")
+
+    # 2) Data Analysis by Narrative (auto: classification)
+    if (st.session_state.narrative_data is not None and
+        st.session_state.classified_df is None and
+        st.session_state.theme_titles):
+        df_classified = train_and_classify_hybrid(
+            st.session_state.df_full,
+            st.session_state.theme_titles,
+            st.session_state.api_key
+        )
+        if df_classified is not None:
+            st.session_state.classified_df = df_classified
+        st.rerun()
+
+    # 3) Visualization + Insights (auto)
+    if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
         st.header("Data Analysis by Narrative")
-        if st.session_state.narrative_data is not None and st.session_state.classified_df is None:
-            if not st.session_state.theme_titles:
-                st.error("No valid narrative titles were produced. Please regenerate narratives.")
-            else:
-                with st.spinner("Classifying all posts by narrative theme..."):
-                    df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
-                    if df_classified is not None:
-                        st.session_state.classified_df = df_classified
-                st.rerun()
 
-        if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
-            df_classified = st.session_state.classified_df
+        df_classified = st.session_state.classified_df
 
-            # Filter for visualization (exclude Other/Unrelated and require valid dates)
-            df_viz = df_classified[
-                (df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT) &
-                (df_classified['DATETIME'].notna())
-            ].copy()
+        # Filter for visualization (exclude Other/Unrelated and require valid dates)
+        df_viz = df_classified[
+            (df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT) &
+            (df_classified['DATETIME'].notna())
+        ].copy()
 
-            if df_viz.empty:
-                st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
-            else:
-                # Compute toxicity scores
-                df_viz, theme_toxicity = compute_toxicity_scores(df_viz)
+        if df_viz.empty:
+            st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
+        else:
+            # Compute toxicity scores
+            df_viz, theme_toxicity = compute_toxicity_scores(df_viz)
 
-                st.subheader("Narrative Analysis Dashboard")
+            st.subheader("Narrative Analysis Dashboard")
 
-                # 1) Post Volume by Theme (Bar)
-                st.markdown("### Post Volume by Theme")
-                theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(Post_Volume=('POST_TEXT', 'size')).reset_index()
-                theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
-                fig_bar = px.bar(
-                    theme_metrics,
-                    x='NARRATIVE_TAG',
+            # 1) Post Volume by Theme (Bar)
+            st.markdown("### Post Volume by Theme")
+            theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(Post_Volume=('POST_TEXT', 'size')).reset_index()
+            theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
+            fig_bar = px.bar(
+                theme_metrics,
+                x='NARRATIVE_TAG',
+                y='Post_Volume',
+                title='Post Volume by Theme',
+                labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
+                height=500,
+                color='NARRATIVE_TAG',
+                color_discrete_sequence=VIBRANT_QUAL
+            )
+            def wrap_labels_bar(text):
+                return '<br>'.join(textwrap.wrap(text, 15))
+            fig_bar.update_traces(marker_line_width=0)
+            fig_bar.update_layout(
+                xaxis={
+                    'categoryorder': 'total descending',
+                    'tickangle': 0,
+                    'automargin': True,
+                    'tickfont': {'size': 12},
+                    'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
+                    'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
+                },
+                showlegend=False
+            )
+            fig_bar = finalize_figure(fig_bar, title="Post volume by narrative theme", subtitle="Sorted by total posts", height=500)
+            st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+
+            # 2) Narrative Volume Trend Over Time (Line)
+            st.markdown("### Narrative Volume Trend Over Time")
+            df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
+            df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
+            if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
+                fig_line = px.line(
+                    df_trends_theme,
+                    x='DATETIME',
                     y='Post_Volume',
-                    title='Post Volume by Theme',
-                    labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
-                    height=500,
                     color='NARRATIVE_TAG',
+                    title='Volume Trend by Narrative Theme',
+                    labels={'Post_Volume': 'Daily Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
+                    height=550,
                     color_discrete_sequence=VIBRANT_QUAL
                 )
-                def wrap_labels_bar(text):
-                    return '<br>'.join(textwrap.wrap(text, 15))
-                fig_bar.update_traces(marker_line_width=0)
-                fig_bar.update_layout(
-                    xaxis={
-                        'categoryorder': 'total descending',
-                        'tickangle': 0,
-                        'automargin': True,
-                        'tickfont': {'size': 12},
-                        'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
-                        'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
-                    },
-                    showlegend=False
+                fig_line.update_traces(mode="lines", line={"width": 3})
+                fig_line.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Daily posts",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
                 )
-                fig_bar = finalize_figure(fig_bar, title="Post volume by narrative theme", subtitle="Sorted by total posts", height=500)
-                st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+                fig_line = finalize_figure(fig_line, title="Narrative volume over time", subtitle="Daily volume, by theme", height=520)
+                st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
 
-                # 2) Narrative Volume Trend Over Time (Line)
-                st.markdown("### Narrative Volume Trend Over Time")
-                df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
-                df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
-                if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
-                    fig_line = px.line(
-                        df_trends_theme,
-                        x='DATETIME',
-                        y='Post_Volume',
-                        color='NARRATIVE_TAG',
-                        title='Volume Trend by Narrative Theme',
-                        labels={'Post_Volume': 'Daily Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
-                        height=550,
-                        color_discrete_sequence=VIBRANT_QUAL
-                    )
-                    fig_line.update_traces(mode="lines", line={"width": 3})
-                    fig_line.update_layout(
-                        xaxis_title="Date",
-                        yaxis_title="Daily posts",
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
-                    )
-                    fig_line = finalize_figure(fig_line, title="Narrative volume over time", subtitle="Daily volume, by theme", height=520)
-                    st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
-                else:
-                    st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
+            # 3) Toxicity Density by Theme
+            st.markdown("### Toxicity Density by Narrative Theme")
+            fig_tox = plot_toxicity_by_theme(theme_toxicity)
+            st.plotly_chart(fig_tox, use_container_width=True, config={"displayModeBar": False})
+            st.caption(f"Based on {len(TOXIC_KEYWORDS)} keywords; density = toxic matches / total words per post.")
 
-                # 3) Toxicity Density by Theme
-                st.markdown("### Toxicity Density by Narrative Theme")
-                fig_tox = plot_toxicity_by_theme(theme_toxicity)
-                st.plotly_chart(fig_tox, use_container_width=True, config={"displayModeBar": False})
-                st.caption(f"Based on {len(TOXIC_KEYWORDS)} keywords; density = toxic matches / total words per post.")
+            # 4) Influencer Share per Theme (Top authors only)
+            st.markdown("### Influencer Share of Engagement (Top Authors Only)")
+            for theme in df_viz['NARRATIVE_TAG'].unique():
+                fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
+                if fig_theme:
+                    st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
 
-                # 4) Influencer Share per Theme (Top authors only)
-                st.markdown("### Influencer Share of Engagement (Top Authors Only)")
-                for theme in df_viz['NARRATIVE_TAG'].unique():
-                    fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
-                    if fig_theme:
-                        st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
+            # 5) Overall Top Authors by Likes
+            st.markdown("### Top 10 Overall Authors by Total Likes")
+            fig_overall = plot_overall_author_ranking(df_classified, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=10)
+            st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
 
-                # 5) Overall Top Authors by Likes
-                st.markdown("### Top 10 Overall Authors by Total Likes")
-                fig_overall = plot_overall_author_ranking(df_classified, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=10)
-                st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
+        # Auto-generate Insights (Takeaways)
+        st.markdown("---")
+        st.header("Insights from the Data")
+        if st.session_state.takeaways_list is None:
+            st.session_state.data_summary_text = perform_data_crunching_and_summary(st.session_state.classified_df)
+            st.session_state.takeaways_list = generate_takeaways(st.session_state.data_summary_text, st.session_state.api_key)
+            st.rerun()
 
-                # --- Insights from the Data (Step 3) ---
-                st.markdown("---")
-                st.header("Insights from the Data")
-                if st.button("Click here to generate 5 key takeaways from the data", type="primary"):
-                    data_summary_text = perform_data_crunching_and_summary(df_classified)
-                    takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
-                    if takeaways_list:
-                        st.subheader("Executive Summary: 5 Key Takeaways")
-                        for i, takeaway in enumerate(takeaways_list):
-                            st.markdown(f"**{i+1}.** {takeaway}")
+        if st.session_state.takeaways_list:
+            st.subheader("Executive Summary: 5 Key Takeaways")
+            for i, takeaway in enumerate(st.session_state.takeaways_list):
+                st.markdown(f"**{i+1}.** {takeaway}")
