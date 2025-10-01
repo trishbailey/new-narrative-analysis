@@ -31,7 +31,7 @@ TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
-# REMOVED: TIME_COLUMN = 'Time'
+# REMOVED: TIME_COLUMN (Using Date only)
 
 # --- Streamlit Setup ---
 st.set_page_config(
@@ -386,30 +386,32 @@ with st.container(border=True):
                 # Providing the exact names the code is looking for to aid debugging
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
-            # Combine Date and Time
-            # FIX: Robust Date Parsing - Iterating over formats
+            # --- Date Parsing (FINAL FIX for time series) ---
             
-            # Use only the Date column (and assume any Time column data is now handled by Excel itself)
-            date_series = df[DATE_COLUMN].astype(str)
+            date_series = df[DATE_COLUMN]
             
-            # List of inferenced formats to try (from most common to generic)
-            date_formats_to_try = [
-                # Assumption 1: Day/Month/Year (e.g., 23-Sep-2025)
-                {'errors': 'coerce', 'infer_datetime_format': True, 'dayfirst': True},
-                # Assumption 2: Month/Day/Year (Standard US/Excel)
-                {'errors': 'coerce', 'infer_datetime_format': True, 'dayfirst': False},
-            ]
+            # Use a single, explicit format for robustness based on the user's image: 'DD-Mon-YYYY'
+            # If this format fails, Pandas will automatically use its internal inference as a secondary effort.
+            df['DATETIME'] = pd.to_datetime(
+                date_series, 
+                format='%d-%b-%Y', # Explicit format from user's image (23-Sep-2025)
+                errors='coerce' # Set invalid parsing to NaT
+            )
             
-            final_datetime = pd.Series([pd.NaT] * len(df))
+            # Fallback: Check for dates that might be stored as numeric floats (common Excel style)
+            if df['DATETIME'].isnull().sum() > 0 and pd.api.types.is_numeric_dtype(date_series.dropna()):
+                 st.warning("Attempting conversion of numeric Excel dates...")
+                 
+                 numeric_dates = pd.to_datetime(
+                    date_series, 
+                    unit='D', 
+                    origin='1899-12-30', 
+                    errors='coerce'
+                )
+                 # Combine the explicit format result with the numeric fallback
+                 df['DATETIME'] = df['DATETIME'].combine_first(numeric_dates)
             
-            # Perform iterative parsing to find the correct format
-            for params in date_formats_to_try:
-                current_attempt = pd.to_datetime(date_series, **params)
-                # Update final_datetime only where NaT currently exists
-                final_datetime = final_datetime.combine_first(current_attempt)
-            
-            # Replace the DATETIME column with the best-effort result
-            df['DATETIME'] = final_datetime
+            # --- End Date Parsing ---
             
             # Create a combined text column
             df['POST_TEXT'] = df.apply(
@@ -424,7 +426,7 @@ with st.container(border=True):
             
             data_rows = df.shape[0]
             
-            # --- Safe Date Calculation ---
+            # --- Safe Date Calculation for Display ---
             valid_dates = df['DATETIME'].dropna()
             if not valid_dates.empty:
                 date_min = valid_dates.min().strftime('%Y-%m-%d')
@@ -492,7 +494,9 @@ else:
             
     if st.session_state.narrative_data:
         st.subheader("Generated Narrative Themes")
-        st.dataframe(pd.DataFrame(st.session_state.narrative_data), use_container_width=True)
+        # FIX: Display themes as markdown list, not a DataFrame
+        for i, narrative in enumerate(st.session_state.narrative_data):
+            st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
         
         # Store list of titles for Step 2
         st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
@@ -553,7 +557,19 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
             height=500,
             color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors
         )
-        fig_bar.update_layout(xaxis={'categoryorder':'total descending'}, legend_title_text='Metric')
+        
+        # FIX: Label Wrapping for the X-axis
+        fig_bar.update_layout(
+            xaxis={
+                'categoryorder':'total descending',
+                'tickangle': 0, # Keep labels horizontal
+                'tickmode': 'array',
+                # This wraps the labels based on the width of the chart
+                'tickvals': theme_metrics['NARRATIVE_TAG'],
+                'ticktext': [f"<br>".join(t.split()) for t in theme_metrics['NARRATIVE_TAG']], # Insert <br> to force wrap
+            }, 
+            legend_title_text='Metric'
+        )
         st.plotly_chart(fig_bar, use_container_width=True)
 
         # 2. Line Graph: Trend Over Time (Volume)
@@ -565,10 +581,10 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
             Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
         ).reset_index()
         
-        if not df_trends.empty:
+        if not df_trends.empty and len(df_trends['DATETIME'].dt.date.unique()) > 1: # Require data across multiple days
             # Calculate Rolling Averages
-            df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7).mean()
-            df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7).mean()
+            df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7, min_periods=1).mean() # Added min_periods=1
+            df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7, min_periods=1).mean() # Added min_periods=1
 
             # Normalize Likes for visualization
             max_volume_roll = df_trends['Volume_Roll_Avg'].max()
@@ -598,29 +614,48 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
         st.markdown("### Author & Theme Leaderboards")
         col1, col2 = st.columns(2)
 
+        # --- Top 10 Authors by Post Volume (Per Theme) ---
         with col1:
-            st.markdown("#### Top Authors by Post Volume (Per Theme)")
+            st.markdown("#### Top 10 Authors by Post Volume (Per Theme)")
             author_volume = df_viz.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN]).size().reset_index(name='Post_Count')
-            top_authors_vol = author_volume.sort_values(['NARRATIVE_TAG', 'Post_Count'], ascending=[True, False]).groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
-            st.dataframe(top_authors_vol, use_container_width=True, height=500, hide_index=True)
+            top_authors_vol = author_volume.sort_values(['NARRATIVE_TAG', 'Post_Count'], ascending=[True, False])
 
+            for theme in top_authors_vol['NARRATIVE_TAG'].unique():
+                st.markdown(f"**{theme}**")
+                theme_subset = top_authors_vol[top_authors_vol['NARRATIVE_TAG'] == theme].head(10) # Limited to Top 10
+                for index, row in theme_subset.iterrows():
+                    st.markdown(f"- {row[AUTHOR_COLUMN]}: {row['Post_Count']} posts")
+                st.markdown("---") 
+
+        # --- Top 10 Authors by Likes (Per Theme) ---
         with col2:
-            st.markdown("#### Top Authors by Likes (Per Theme)")
+            st.markdown("#### Top 10 Authors by Likes (Per Theme)")
             author_likes = df_viz.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN])[ENGAGEMENT_COLUMN].sum().reset_index(name='Total_Likes')
-            top_authors_likes = author_likes.sort_values(['NARRATIVE_TAG', 'Total_Likes'], ascending=[True, False]).groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
-            st.dataframe(top_authors_likes, use_container_width=True, height=500, hide_index=True)
+            top_authors_likes = author_likes.sort_values(['NARRATIVE_TAG', 'Total_Likes'], ascending=[True, False])
+
+            for theme in top_authors_likes['NARRATIVE_TAG'].unique():
+                st.markdown(f"**{theme}**")
+                theme_subset = top_authors_likes[top_authors_likes['NARRATIVE_TAG'] == theme].head(10) # Limited to Top 10
+                for index, row in theme_subset.iterrows():
+                    # Format likes with comma separators for readability
+                    st.markdown(f"- {row[AUTHOR_COLUMN]}: {row['Total_Likes']:,} likes")
+                st.markdown("---") 
 
 
-        # 5. Overall Top 5 Posters by Likes with Theme Context
-        st.markdown("#### Top 5 Overall Authors by Total Likes")
+        # 5. Overall Top 10 Posters by Likes with Theme Context
+        st.markdown("#### Top 10 Overall Authors by Total Likes")
         
         overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
             Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
             Total_Posts=('POST_TEXT', 'size'),
             Themes_Contributed=('NARRATIVE_TAG', lambda x: ', '.join(x.unique()))
-        ).sort_values(by='Total_Likes', ascending=False).head(5).reset_index()
+        ).sort_values(by='Total_Likes', ascending=False).head(10).reset_index() # Limited to Top 10
 
-        st.dataframe(overall_top_authors, use_container_width=True, hide_index=True)
+        # Display overall top authors in a simple, non-sortable markdown table
+        st.markdown("| Rank | Author | Total Likes | Themes Contributed |")
+        st.markdown("| :--- | :--- | :--- | :--- |")
+        for i, row in overall_top_authors.iterrows():
+            st.markdown(f"| {i+1} | {row[AUTHOR_COLUMN]} | {row['Total_Likes']:,} | {row['Themes_Contributed']} |")
 
 
     # --- Step 3: Generate Key Takeaways ---
