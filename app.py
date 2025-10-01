@@ -258,8 +258,17 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     author_summary += overall_top_authors.to_string(index=False) + "\n\n"
 
     # 3. Overall Time Context
-    start_date = df_classified['DATETIME'].min().strftime('%Y-%m-%d')
-    end_date = df_classified['DATETIME'].max().strftime('%Y-%m-%d')
+    
+    # FIX: Check if DATETIME column has any valid dates before calling min/max/strftime
+    valid_dates = df_classified['DATETIME'].dropna()
+    
+    if not valid_dates.empty:
+        start_date = valid_dates.min().strftime('%Y-%m-%d')
+        end_date = valid_dates.max().strftime('%Y-%m-%d')
+    else:
+        start_date = "N/A (No valid dates found)"
+        end_date = "N/A (No valid dates found)"
+        
     total_posts = len(df_classified)
     total_likes_all = df_classified[ENGAGEMENT_COLUMN].sum()
     
@@ -394,7 +403,9 @@ with st.container(border=True):
                 errors='coerce', 
                 format='%d-%b-%Y %I:%M%p'  # Example format: '23-Sep-2025 09:22AM'
             )
-            df.dropna(subset=['DATETIME'], inplace=True)
+            
+            # IMPORTANT: Do not drop rows yet! This line was moved down to ensure we calculate 
+            # stats on all uploaded rows, even those without a date.
             
             # Create a combined text column
             df['POST_TEXT'] = df.apply(
@@ -408,8 +419,17 @@ with st.container(border=True):
             st.session_state.df_full = df.copy()
             
             data_rows = df.shape[0]
-            date_min = df['DATETIME'].min().strftime('%Y-%m-%d')
-            date_max = df['DATETIME'].max().strftime('%Y-%m-%d')
+            
+            # --- FIX: Safe Date Calculation ---
+            valid_dates = df['DATETIME'].dropna()
+            if not valid_dates.empty:
+                date_min = valid_dates.min().strftime('%Y-%m-%d')
+                date_max = valid_dates.max().strftime('%Y-%m-%d')
+            else:
+                date_min = "N/A (No valid dates)"
+                date_max = "N/A (No valid dates)"
+            # --- END FIX ---
+
 
             st.success("File uploaded successfully! ")
             st.markdown(f"""
@@ -490,10 +510,14 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
     st.subheader("Narrative Analysis Dashboard")
 
     # Filter out the "Other/Unrelated" category for visualization, but keep in metrics
-    df_viz = df_classified[df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT].copy()
+    # We must ensure we filter only on rows with valid dates for trend analysis
+    df_viz = df_classified[
+        (df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT) & 
+        (df_classified['DATETIME'].notna())
+    ].copy()
     
     if df_viz.empty:
-        st.warning("No posts were classified into the primary narrative themes. The dashboard will be empty.")
+        st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard will be empty.")
     else:
         # 1. Bar Chart: Volume and Engagement
         st.markdown("### 1. Post Volume vs. Normalized Likes per Theme")
