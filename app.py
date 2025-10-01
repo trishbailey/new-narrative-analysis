@@ -13,8 +13,7 @@ import threading
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+# No need for train_test_split or accuracy_score in this final app version
 
 # --- Configuration ---
 XAI_API_KEY_ENV_VAR = 'XAI_API_KEY'
@@ -169,12 +168,15 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     # 1. AI Seed Generation (Grok Labels a small sample)
     st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using {CLASSIFICATION_MODEL}...")
     
-    df_sample = df_full.sample(min(AI_SEED_SAMPLE_SIZE, len(df_full)), random_state=42).copy()
+    # Ensure sample size doesn't exceed available data
+    actual_seed_size = min(AI_SEED_SAMPLE_SIZE, len(df_full))
+    
+    df_sample = df_full.sample(actual_seed_size, random_state=42).copy()
     df_remaining = df_full.drop(df_sample.index).copy()
     
     seed_tags = []
     
-    # Use concurrent execution for the seed generation to speed up the small sample
+    # Use concurrent execution for the seed generation
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         # Submit all classification tasks for the seed
         future_to_post = {
@@ -187,7 +189,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
         
         for i, future in enumerate(concurrent.futures.as_completed(future_to_post)):
             seed_tags.append(future.result())
-            progress_bar.progress((i + 1) / AI_SEED_SAMPLE_SIZE)
+            progress_bar.progress((i + 1) / actual_seed_size)
             
     df_sample['NARRATIVE_TAG'] = seed_tags
     progress_bar.empty()
@@ -358,40 +360,42 @@ with st.container(border=True):
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
-            # --- Robust File Reading Logic (Attempting multiple delimiters) ---
+            # --- Robust File Reading Logic (Attempting multiple delimiters and skip rows) ---
             uploaded_file.seek(0)
             
             # List of delimiters to try, including the most common for Meltwater/Excel exports
-            delimiters = [',', ';', '\t', '|'] 
+            delimiters = [',', ';', '\t', '|', '~', '^'] 
             df = None
             
             for sep in delimiters:
-                try:
-                    # Attempt to read with the current separator
-                    df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=sep, on_bad_lines='skip')
-                    
-                    # Clean column names (strip whitespace) for reliable checks
-                    df.columns = df.columns.str.strip() 
+                for skip in range(6): # Try skipping 0 to 5 rows
+                    try:
+                        uploaded_file.seek(0) # Rewind file before each attempt
+                        
+                        # Attempt to read with the current separator and skiprows
+                        df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=sep, on_bad_lines='skip', skiprows=skip)
+                        
+                        # Clean column names (strip whitespace) for reliable checks
+                        df.columns = df.columns.str.strip() 
 
-                    # A quick check to see if the crucial columns exist
-                    if all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                        # Check if we have too few columns for this to be correct
-                        if df.shape[1] > len(TEXT_COLUMNS): 
-                            break # Found the correct delimiter, exit the loop
-                    
-                    # Rewind the file pointer to the start for the next attempt
-                    uploaded_file.seek(0) 
-
-                except pd.errors.ParserError:
-                    uploaded_file.seek(0) # Rewind for the next attempt
-                    continue
+                        # A quick check to see if the crucial columns exist
+                        if all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
+                            # Check if we have too few columns for this to be incorrect read
+                            if df.shape[1] > len(TEXT_COLUMNS): 
+                                break # Found the correct delimiter and skip value, exit the inner loop
+                        
+                    except pd.errors.ParserError:
+                        continue
+                if df is not None and 'DATETIME' not in df.columns and all(col in df.columns for col in TEXT_COLUMNS):
+                    break # Exit outer loop if a good read was found
             
             if df is None or not all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                 raise ValueError("Could not determine the correct CSV delimiter or file is missing essential columns.")
+                 raise ValueError("Could not determine the correct CSV delimiter or file is missing essential columns. Try manually checking your file's delimiter.")
             
             # --- Data Preprocessing/Cleaning ---
             
             # Combine Date and Time
+            # Use errors='coerce' to handle mixed date/time formats gracefully
             df['DATETIME'] = pd.to_datetime(df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), errors='coerce', dayfirst=True)
             df.dropna(subset=['DATETIME'], inplace=True)
             
