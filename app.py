@@ -23,13 +23,13 @@ API_BASE_URL = "https://api.x.ai/v1/chat/completions"
 MAX_POSTS_FOR_ANALYSIS = 100 # Fixed sample size for Step 1 (Narrative Generation)
 AI_SEED_SAMPLE_SIZE = 50 # Fixed sample size for Step 2 (ML Training)
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
-HEADER_ROWS_TO_SKIP = 1 # FIXED: Skip the first row (index 0) where the title/metadata typically resides.
+# Confirmed by user: Columns start on the second row (index 1)
+HEADER_ROWS_TO_SKIP = 1 
 
-# --- Meltwater Data Column Mapping (CORRECTED AUTHOR COLUMN) ---
+# --- Meltwater Data Column Mapping (CORRECTED AND FINALIZED) ---
 TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
-# FINAL CORRECTED COLUMN NAME: Using 'Influencer' based on file content.
-AUTHOR_COLUMN = 'Influencer' 
+AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
 TIME_COLUMN = 'Time'
 
@@ -244,8 +244,8 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     theme_metrics = theme_metrics.sort_values(by='Volume', ascending=False)
     
     narrative_summary = "Narrative Metrics (Volume, Total Likes, Avg Likes Per Post):\n"
-    # Use to_markdown for cleaner text formatting for Grok
-    narrative_summary += theme_metrics.to_markdown(index=False, float_format="%.2f") + "\n\n"
+    # FIX: Using to_string() instead of to_markdown() to avoid tabulate dependency
+    narrative_summary += theme_metrics.to_string(index=False, float_format="%.2f") + "\n\n"
     
     # 2. Overall Top Authors by Likes
     overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
@@ -254,7 +254,8 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     ).nlargest(3, 'Total_Likes').reset_index()
     
     author_summary = "Overall Top 3 Influencers (by Total Likes):\n"
-    author_summary += overall_top_authors.to_markdown(index=False) + "\n\n"
+    # FIX: Using to_string() instead of to_markdown() to avoid tabulate dependency
+    author_summary += overall_top_authors.to_string(index=False) + "\n\n"
 
     # 3. Overall Time Context
     start_date = df_classified['DATETIME'].min().strftime('%Y-%m-%d')
