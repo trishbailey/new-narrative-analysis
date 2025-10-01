@@ -93,6 +93,28 @@ st.markdown(
     .js-plotly-plot {{
         background-color: {DARK_BG_COLOR} !important; 
     }}
+    
+    /* --- FINAL FIX: Tighter Spacing Below Title and Subtitle --- */
+    /* Reduce bottom margin of the main H1 title */
+    [data-testid="stAppViewBlock"] h1 {{
+        margin-bottom: 0.25rem !important; /* Standard space for titles */
+    }}
+    /* Reduce top margin of the first Markdown block (the subtitle) */
+    [data-testid="stAppViewBlock"] p:nth-child(1) {{
+        margin-top: 0.25rem !important; 
+        margin-bottom: 0.5rem !important;
+    }}
+    /* Reduce margin on the first separator line (---) */
+    .stApp > div > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) hr {{
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem; /* Less space before the next header (Narratives Extraction) */
+    }}
+    
+    /* FIX: Reduce default margin on the header below the separator */
+    [data-testid="stAppViewBlock"] h2:nth-child(1) {{
+        margin-top: 0.5rem !important;
+    }}
+    
     </style>
     """,
     unsafe_allow_html=True
@@ -571,7 +593,6 @@ with st.sidebar:
     # --- API Key Check (Discreet) ---
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
-    # FIX: Removed the successful API key notification to reduce clutter
     
     # --- File Upload (NEW POSITION) ---
     st.markdown("#### File Upload")
