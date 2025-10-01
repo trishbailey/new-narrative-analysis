@@ -23,6 +23,7 @@ API_BASE_URL = "https://api.x.ai/v1/chat/completions"
 MAX_POSTS_FOR_ANALYSIS = 100 # Fixed sample size for Step 1 (Narrative Generation)
 AI_SEED_SAMPLE_SIZE = 50 # Fixed sample size for Step 2 (ML Training)
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
+HEADER_ROWS_TO_SKIP = 1 # FIXED: Skip the first row (index 0) where the title/metadata typically resides.
 
 # --- Meltwater Data Column Mapping (Case-sensitive based on user data) ---
 TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
@@ -360,37 +361,54 @@ with st.container(border=True):
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
-            # --- Robust File Reading Logic (Attempting multiple delimiters and skip rows) ---
+            # --- Highly Robust File Reading Logic (Attempting multiple delimiters and UTF-16) ---
             uploaded_file.seek(0)
             
-            # List of delimiters to try, including the most common for Meltwater/Excel exports
-            delimiters = [',', ';', '\t', '|', '~', '^'] 
+            # Combinations: (delimiter, encoding) - Prioritizing UTF-16/Tab/Semicolon
+            attempts = [
+                ('\t', 'utf-16'),  # PRIMARY ATTEMPT: UTF-16 + Tab (Common for Excel/Apples Exports)
+                (';', 'utf-16'),  # SECONDARY ATTEMPT: UTF-16 + Semicolon
+                (',', 'utf-8'),   # Default comma + UTF-8
+                (',', 'latin1'),   # Comma + permissive encoding
+                (',', 'unicode_escape'), # Comma + fallback encoding
+                (';', 'unicode_escape'), 
+                ('\t', 'unicode_escape'),
+                ('|', 'unicode_escape'),
+            ]
+            
             df = None
             
-            for sep in delimiters:
-                for skip in range(6): # Try skipping 0 to 5 rows
-                    try:
-                        uploaded_file.seek(0) # Rewind file before each attempt
-                        
-                        # Attempt to read with the current separator and skiprows
-                        df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=sep, on_bad_lines='skip', skiprows=skip)
-                        
-                        # Clean column names (strip whitespace) for reliable checks
-                        df.columns = df.columns.str.strip() 
+            for sep, enc in attempts:
+                try:
+                    uploaded_file.seek(0) # Rewind file before each attempt
+                    
+                    # Attempt to read with the current separator and encoding, skipping the first row (HEADER_ROWS_TO_SKIP)
+                    df = pd.read_csv(
+                        uploaded_file, 
+                        low_memory=False, 
+                        encoding=enc, 
+                        sep=sep, 
+                        on_bad_lines='skip', 
+                        skiprows=HEADER_ROWS_TO_SKIP, # <-- FIX APPLIED HERE
+                        quotechar='"' # Explicitly setting quotechar for robustness
+                    )
+                    
+                    # Clean column names (strip whitespace) for reliable checks
+                    df.columns = df.columns.str.strip() 
 
-                        # A quick check to see if the crucial columns exist
-                        if all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                            # Check if we have too few columns for this to be incorrect read
-                            if df.shape[1] > len(TEXT_COLUMNS): 
-                                break # Found the correct delimiter and skip value, exit the inner loop
-                        
-                    except pd.errors.ParserError:
-                        continue
-                if df is not None and 'DATETIME' not in df.columns and all(col in df.columns for col in TEXT_COLUMNS):
-                    break # Exit outer loop if a good read was found
+                    # A quick check to see if the crucial columns exist
+                    if all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
+                        # Found the correct combination, break all loops
+                        break 
+                    
+                except pd.errors.ParserError:
+                    continue # Try next attempt
+                except UnicodeDecodeError:
+                    continue # Try next attempt if the encoding failed
+                
             
             if df is None or not all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                 raise ValueError("Could not determine the correct CSV delimiter or file is missing essential columns. Try manually checking your file's delimiter.")
+                 raise ValueError("Could not determine the correct CSV delimiter or file is missing essential columns. If problems persist, check your file's delimiter (comma, semicolon, tab) and manually adjust the HEADER_ROWS_TO_SKIP constant.")
             
             # --- Data Preprocessing/Cleaning ---
             
@@ -414,7 +432,7 @@ with st.container(border=True):
             date_min = df['DATETIME'].min().strftime('%Y-%m-%d')
             date_max = df['DATETIME'].max().strftime('%Y-%m-%d')
 
-            st.success("File uploaded successfully!")
+            st.success("File uploaded successfully! ")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
