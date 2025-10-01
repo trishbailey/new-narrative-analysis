@@ -5,6 +5,7 @@ import os
 import json
 import time
 import plotly.express as px
+import plotly.io as pio
 import matplotlib.pyplot as plt
 import concurrent.futures
 import threading
@@ -38,14 +39,14 @@ TIME_COLUMN = 'Time'
 # FIX: Explicit format confirmed to work for Meltwater date/time strings
 DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
 
-# --- Streamlit Theme Configuration (UPDATED for Light Mode) ---
+# --- Streamlit Theme Configuration (Light Mode) ---
 PRIMARY_COLOR = "#1E88E5"   # Blue for primary buttons
 BG_COLOR = "#ffffff"        # Main background
 SIDEBAR_BG = "#f7f7f7"      # Sidebar background
 TEXT_COLOR = "#333333"      # Main text
 HEADER_COLOR = "#111111"    # Headers
 
-# --- Inject Configuration into Streamlit (Light Mode CSS) ---
+# --- Page Config ---
 st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
@@ -53,71 +54,204 @@ st.set_page_config(
     menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
 
-# Use st.markdown to inject the styling needed for Light Mode and custom colors
+# --- Global CSS (Light Mode UI + Inter font + subtle chart glow) ---
 st.markdown(
 f"""
-    <style>
-    /* Sidebar */
-    [data-testid="stSidebar"] {{
-        background-color: {SIDEBAR_BG};
-        color: {TEXT_COLOR};
-    }}
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* Sidebar */
+[data-testid="stSidebar"] {{
+    background-color: {SIDEBAR_BG};
+    color: {TEXT_COLOR};
+}}
 
-    /* App background + text */
-    .stApp {{
-        background-color: {BG_COLOR};
-        color: {TEXT_COLOR};
-    }}
+/* App background + text */
+.stApp {{
+    background-color: {BG_COLOR};
+    color: {TEXT_COLOR};
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}}
 
-    /* Headers */
-    h1, h2, h3, h4, h5, h6 {{
-        color: {HEADER_COLOR} !important;
-    }}
+/* Headers */
+h1, h2, h3, h4, h5, h6 {{
+    color: {HEADER_COLOR} !important;
+}}
 
-    /* General text */
-    p, span, label, div {{
-        color: {TEXT_COLOR} !important;
-    }}
+/* General text */
+p, span, label, div {{
+    color: {TEXT_COLOR} !important;
+}}
 
-    /* Buttons (primary) */
-    .stButton > button.primary {{
-        background-color: {PRIMARY_COLOR} !important;
-        border-color: {PRIMARY_COLOR} !important;
-        color: white !important;
-    }}
-    .stButton > button.primary:hover {{
-        background-color: #1565C0 !important; /* darker blue */
-        border-color: #1565C0 !important;
-    }}
+/* Buttons (primary) */
+.stButton > button.primary {{
+    background-color: {PRIMARY_COLOR} !important;
+    border-color: {PRIMARY_COLOR} !important;
+    color: white !important;
+}}
+.stButton > button.primary:hover {{
+    background-color: #1565C0 !important; /* darker blue */
+    border-color: #1565C0 !important;
+}}
 
-    /* Also style any non-primary buttons for readability */
-    .stButton > button:not(.primary) {{
-        color: {HEADER_COLOR} !important;
-        border-color: #d0d0d0 !important;
-        background-color: #fafafa !important;
-    }}
+/* Also style any non-primary buttons for readability */
+.stButton > button:not(.primary) {{
+    color: {HEADER_COLOR} !important;
+    border-color: #d0d0d0 !important;
+    background-color: #fafafa !important;
+}}
 
-    /* Alerts */
-    div[data-testid="stAlert"] * p, div[data-testid="stAlert"] * h5 {{
-        color: {TEXT_COLOR} !important;
-    }}
+/* Alerts */
+div[data-testid="stAlert"] * p, div[data-testid="stAlert"] * h5 {{
+    color: {TEXT_COLOR} !important;
+}}
 
-    /* Code snippets */
-    code {{
-        background-color: #f2f2f2;
-        color: #d63384; /* magenta-like highlight */
-        padding: 2px 4px;
-        border-radius: 4px;
-    }}
+/* Code snippets */
+code {{
+    background-color: #f2f2f2;
+    color: #d63384; /* magenta-like highlight */
+    padding: 2px 4px;
+    border-radius: 4px;
+}}
 
-    /* Fix Plotly chart backgrounds in light mode */
-    .js-plotly-plot {{
-        background-color: {BG_COLOR} !important;
-    }}
-    </style>
+/* Plotly background anchor */
+.js-plotly-plot {{
+    background-color: {BG_COLOR} !important;
+}}
+
+/* Subtle glow for bars and markers */
+.js-plotly-plot svg .bar,
+.js-plotly-plot svg .legendpoints path,
+.js-plotly-plot svg .points path {{
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.08))
+          drop-shadow(0 2px 6px rgba(0,0,0,0.08));
+}}
+
+/* Slight glow on lines */
+.js-plotly-plot svg .lines path,
+.js-plotly-plot svg .scatterlayer path {{
+  filter: drop-shadow(0 0 3px rgba(0,0,0,0.10));
+}}
+
+/* Hover label refinement */
+.js-plotly-plot .hoverlayer .hoverlabel {{
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}}
+
+/* Chart captions (if you want to use them in markdown) */
+.chart-subtitle {{
+  font-size: 0.95rem; 
+  color: #6b7280;
+  margin-top: -10px;
+  margin-bottom: 12px;
+}}
+.chart-source {{
+  font-size: 0.85rem; 
+  color: #9ca3af; 
+  margin-top: 8px;
+}}
+</style>
 """,
     unsafe_allow_html=True
 )
+
+# --- Vibrant Plotly Template (rich colorway + editorial polish) ---
+VIBRANT_QUAL = [
+    "#1E88E5",  # vivid blue
+    "#E53935",  # crimson
+    "#8E24AA",  # royal purple
+    "#43A047",  # emerald
+    "#FB8C00",  # amber
+    "#00ACC1",  # cyan
+    "#F4511E",  # burnt orange
+    "#3949AB",  # indigo
+    "#6D4C41",  # cocoa
+    "#7CB342",  # olive
+    "#D81B60",  # magenta
+    "#00897B",  # teal
+]
+
+# Start from plotly_white and update layout properties
+vibrant_glow_layout = pio.templates["plotly_white"].layout.to_plotly_json()
+vibrant_glow_layout.update({
+    "font": {"family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif", "size": 14, "color": "#111111"},
+    "colorway": VIBRANT_QUAL,
+    "title": {"x": 0.0, "xanchor": "left", "y": 0.95, "yanchor": "top", "font": {"size": 20}},
+    "margin": {"l": 80, "r": 40, "t": 60, "b": 60},
+    "paper_bgcolor": "white",
+    "plot_bgcolor": "white",
+    "xaxis": {
+        "showline": False, "showgrid": True, "gridcolor": "#e9eaec", "gridwidth": 1,
+        "tickformat": ",", "title": {"standoff": 10, "font": {"size": 14, "color": "#374151"}},
+        "ticks": "", "tickfont": {"size": 12, "color": "#111111"}
+    },
+    "yaxis": {
+        "showline": False, "showgrid": True, "gridcolor": "#e9eaec", "gridwidth": 1,
+        "tickformat": ",", "title": {"standoff": 10, "font": {"size": 14, "color": "#374151"}},
+        "ticks": "", "tickfont": {"size": 12, "color": "#111111"}, "automargin": True
+    },
+    "legend": {
+        "orientation": "h", "yanchor": "bottom", "y": -0.25, "xanchor": "left", "x": 0.0,
+        "title": {"text": "", "font": {"size": 12, "color": "#374151"}},
+        "font": {"size": 12, "color": "#111111"},
+        "itemclick": "toggleothers"
+    },
+    "hovermode": "x unified",
+    "hoverlabel": {"bgcolor": "white", "bordercolor": "#d1d5db", "font": {"family": "Inter", "size": 12, "color": "#111111"}}
+})
+pio.templates["vibrant_glow"] = pio.templates["plotly_white"]
+pio.templates["vibrant_glow"].layout.update(vibrant_glow_layout)
+
+# --- Helpers for presentation ---
+def finalize_figure(fig, title:str, subtitle:str|None=None, source:str|None=None, height:int|None=None):
+    fig.update_layout(template="vibrant_glow", title={"text": title})
+    if height:
+        fig.update_layout(height=height)
+    if subtitle:
+        fig.add_annotation(
+            text=f"<span style='color:#6b7280'>{subtitle}</span>",
+            xref="paper", yref="paper", x=0, y=1.07, showarrow=False, align="left"
+        )
+    if source:
+        fig.add_annotation(
+            text=f"<span style='font-size:12px;color:#9ca3af'>Source: {source}</span>",
+            xref="paper", yref="paper", x=0, y=-0.25, showarrow=False, align="left"
+        )
+    return fig
+
+def add_line_glow(fig, width:int=6, opacity:float=0.25):
+    """
+    For each line trace, add an underlay 'glow' trace with extra width & low opacity.
+    Keeps original colors; renders underneath the main line.
+    """
+    from copy import deepcopy
+    inserts = []
+    for idx, tr in enumerate(fig.data):
+        if getattr(tr, "type", "") == "scatter" and "lines" in (tr.mode or ""):
+            glow = deepcopy(tr)
+            glow.update(
+                line=dict(
+                    color=getattr(tr, "line", {}).get("color", None),
+                    width=(getattr(tr, "line", {}).get("width", 2)) + width
+                ),
+                opacity=opacity,
+                hoverinfo="skip",
+                showlegend=False
+            )
+            inserts.append((idx, glow))
+    # Insert glow traces before their originals
+    offset = 0
+    for idx, glow in inserts:
+        fig.add_trace(glow, row=None, col=None)
+        # Move the newly appended trace to the correct position
+        d = list(fig.data)
+        glow_trace = d.pop(-1)
+        d.insert(idx + offset, glow_trace)
+        fig.data = tuple(d)
+        offset += 1
+    return fig
+
+def wrap_text(s: str, width: int = 16) -> str:
+    return "<br>".join(textwrap.wrap(s, width))
 
 # --- Utility Functions ---
 # Exponential Backoff for API calls
@@ -228,7 +362,6 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     """Hybrid Classification: Grok labels seed, then ML model classifies the rest."""
     # 1. AI Seed Generation (Grok Labels a small sample)
     st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using {CLASSIFICATION_MODEL}...")
-    # Ensure sample size doesn't exceed available data
     actual_seed_size = min(AI_SEED_SAMPLE_SIZE, len(df_full))
     df_sample = df_full.sample(actual_seed_size, random_state=42).copy()
     df_remaining = df_full.drop(df_sample.index).copy()
@@ -236,21 +369,17 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
 
     # Use concurrent execution for the seed generation
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        # Submit all classification tasks for the seed
         future_to_post = {
             executor.submit(classify_post_for_seed, post_text, theme_titles, api_key): post_text
             for post_text in df_sample['POST_TEXT']
         }
-        # Collect results with a progress bar
         progress_bar = st.progress(0)
         for i, future in enumerate(concurrent.futures.as_completed(future_to_post)):
             seed_tags.append(future.result())
             progress_bar.progress((i + 1) / actual_seed_size)
-
     df_sample['NARRATIVE_TAG'] = seed_tags
     progress_bar.empty()
 
-    # Check if we have enough diverse training data
     if df_sample['NARRATIVE_TAG'].nunique() < 2:
         st.error("AI failed to generate diverse enough labels for training. Check generated themes or try increasing AI Seed Sample Size.")
         return None
@@ -274,14 +403,12 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     df_remaining['NARRATIVE_TAG'] = model.predict(X_test)
     st.success("Phase 3 Complete: Full dataset classification finished.")
 
-    # Combine the labeled seed data and the predicted remaining data
     df_classified = pd.concat([df_sample, df_remaining])
     return df_classified
 
 # --- Data Crunching and Summary Generation (Step 3 Helper) ---
 def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     """Performs required data aggregation and formats it into a text summary for Grok."""
-    # 1. Theme Metrics (Volume, Likes, Average Likes)
     theme_metrics = df_classified.groupby('NARRATIVE_TAG').agg(
         Volume=('POST_TEXT', 'size'),
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
@@ -292,7 +419,6 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     narrative_summary = "Narrative Metrics (Volume, Total Likes, Avg Likes Per Post):\n"
     narrative_summary += theme_metrics.to_string(index=False, float_format="%.2f") + "\n\n"
 
-    # 2. Overall Top Authors by Likes
     overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
         Post_Count=('POST_TEXT', 'size')
@@ -300,7 +426,6 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     author_summary = "Overall Top 3 Influencers (by Total Likes):\n"
     author_summary += overall_top_authors.to_string(index=False) + "\n\n"
 
-    # 3. Overall Time Context
     valid_dates = df_classified['DATETIME'].dropna()
     if not valid_dates.empty:
         start_date = valid_dates.min().strftime('%Y-%m-%d')
@@ -317,7 +442,6 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
         f" Total Likes Across All Posts: {total_likes_all:,}\n"
         f" Timeframe: {start_date} to {end_date}\n"
     )
-
     return narrative_summary + author_summary + context_summary
 
 def generate_takeaways(summary_data, api_key):
@@ -359,13 +483,10 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
     Generates a Plotly horizontal stacked bar chart showing total likes per theme,
     with stacked segments for the top N authors + 'Other'.
     """
-    # 1. Aggregate total likes per theme (required for percentage calculation)
     theme_total_likes = df_classified.groupby(theme_col)[engagement_col].sum().rename('Theme_Total')
 
-    # 2. Aggregate likes by Theme and Author
     df_grouped = df_classified.groupby([theme_col, author_col])[engagement_col].sum().reset_index(name='Author_Likes')
 
-    # 3. Identify Top N Authors for EACH theme and group the rest into 'Other'
     def get_top_n_authors(group):
         top_authors = group.nlargest(top_n, 'Author_Likes')
         other_likes = group['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
@@ -381,11 +502,9 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
     df_top_authors = df_grouped.groupby(theme_col).apply(get_top_n_authors).reset_index(drop=True)
     df_top_authors = df_top_authors[df_top_authors['Author_Likes'] > 0].copy()
 
-    # 4. Merge theme totals for calculating percentages (used in tooltips)
     df_top_authors = df_top_authors.merge(theme_total_likes, on=theme_col)
     df_top_authors['Percentage'] = (df_top_authors['Author_Likes'] / df_top_authors['Theme_Total']) * 100
 
-    # 5. Create Plotly Stacked Bar Chart
     fig = px.bar(
         df_top_authors,
         x='Author_Likes',
@@ -402,10 +521,9 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
         category_orders={
             theme_col: df_top_authors.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()
         },
-        color_discrete_sequence=px.colors.qualitative.Alphabet
+        color_discrete_sequence=VIBRANT_QUAL
     )
 
-    # 6. Customize Tooltips and Layout
     fig.update_traces(
         hovertemplate=(
             f'<b>%{{y}}</b><br>'
@@ -413,15 +531,11 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
             f'Likes: %{{x:,}}<br>'
             f'Share: %{{customdata[1]:.2f}}%<extra></extra>'
         ),
-        customdata=df_top_authors[[author_col, 'Percentage']].values
+        customdata=df_top_authors[[author_col, 'Percentage']].values,
+        marker_line_width=0
     )
 
-    # Wrap long theme labels for y-axis
-    TICK_WRAP_WIDTH = 15
-    def wrap_labels(text):
-        return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH))
-    wrapped_labels = {theme: wrap_labels(theme) for theme in df_top_authors[theme_col].unique()}
-
+    wrapped_labels = {theme: wrap_text(theme, 15) for theme in df_top_authors[theme_col].unique()}
     fig.update_layout(
         yaxis={
             'tickmode': 'array',
@@ -430,34 +544,36 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
             'automargin': True
         },
         showlegend=True,
-        legend_title_text="Top Influencers",
-        template='plotly_white'
+        legend_title_text="Top Influencers"
+    )
+
+    fig = finalize_figure(
+        fig,
+        title=f"Engagement share by author within each theme (Top {top_n})",
+        subtitle="Bars show total likes per theme; segments show author share",
+        source="Meltwater; analysis by app",
+        height=550
     )
     return fig
 
-# --- New Overall Author Chart Function ---
 def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n=10):
     """
     Generates a Plotly horizontal bar chart showing top N authors by Total Likes,
     colored by their most frequent theme.
     """
-    # 1. Calculate Primary Theme for each author
     df_classified['Theme_Rank'] = df_classified.groupby([author_col, 'NARRATIVE_TAG'])['POST_TEXT'].transform('count')
     df_classified = df_classified.sort_values(by=['Theme_Rank'], ascending=False)
     df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']]
     df_primary_theme = df_primary_theme.rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
 
-    # 2. Calculate Overall Total Likes and Posts
     overall_metrics = df_classified.groupby(author_col).agg(
         Total_Likes=(engagement_col, 'sum'),
         Total_Posts=('POST_TEXT', 'size')
     ).reset_index()
 
-    # 3. Merge primary theme and sort to get Top N
     overall_metrics = overall_metrics.merge(df_primary_theme, on=author_col, how='left')
     overall_metrics = overall_metrics.sort_values(by='Total_Likes', ascending=False).head(top_n)
 
-    # 4. Create Plotly Horizontal Bar Chart
     fig = px.bar(
         overall_metrics,
         x='Total_Likes',
@@ -471,10 +587,8 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
             'Primary_Theme': 'Primary Narrative Theme'
         },
         height=550,
-        category_orders={
-            author_col: overall_metrics[author_col].tolist()
-        },
-        color_discrete_sequence=px.colors.qualitative.Plotly
+        category_orders={author_col: overall_metrics[author_col].tolist()},
+        color_discrete_sequence=VIBRANT_QUAL
     )
 
     fig.update_traces(
@@ -484,13 +598,18 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
             f'Posts: %{{customdata[0]}}<br>'
             f'Primary Theme: %{{customdata[1]}}<extra></extra>'
         ),
-        customdata=overall_metrics[['Total_Posts', 'Primary_Theme']].values
+        customdata=overall_metrics[['Total_Posts', 'Primary_Theme']].values,
+        marker_line_width=0
     )
 
-    fig.update_layout(
-        yaxis={'title': None, 'automargin': True},
-        xaxis={'tickformat': ',', 'title': 'Total Likes'},
-        template='plotly_white'
+    fig.update_layout(yaxis={'title': None, 'automargin': True}, xaxis={'tickformat': ',', 'title': 'Total Likes'})
+
+    fig = finalize_figure(
+        fig,
+        title=f"Top {top_n} influencers by total likes",
+        subtitle="Colored by each author’s primary narrative theme",
+        source="Meltwater; analysis by app",
+        height=550
     )
     return fig
 
@@ -523,17 +642,21 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
         labels={'Author_Likes': 'Likes', author_col: 'Influencer'},
         height=400,
         color=author_col,
-        color_discrete_sequence=px.colors.qualitative.Set3
+        color_discrete_sequence=VIBRANT_QUAL
     )
     fig.update_traces(
         hovertemplate=f'<b>%{{y}}</b><br>Likes: %{{x:,}}<br>Share: %{{customdata[0]:.1f}}%<extra></extra>',
-        customdata=df_top[['Percentage']]
+        customdata=df_top[['Percentage']],
+        marker_line_width=0
     )
-    fig.update_layout(
-        showlegend=False,
-        yaxis_title=None,
-        xaxis_title='Total Likes',
-        template='plotly_white'
+    fig.update_layout(showlegend=False, yaxis_title=None, xaxis_title='Total Likes')
+
+    fig = finalize_figure(
+        fig,
+        title=f"{theme}: top {top_n} influencers by likes",
+        subtitle="Each bar shows author share within the theme",
+        source="Meltwater; analysis by app",
+        height=380
     )
     return fig
 
@@ -552,17 +675,15 @@ if 'data_summary_text' not in st.session_state:
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
 
-# --- Application Title (FIX: Restored the main title here) ---
+# --- Application Title ---
 st.title("Grok-Powered Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
 
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
-    # --- API Key Check (Discreet) ---
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
 
-    # --- File Upload ---
     st.markdown("#### File Upload")
     uploaded_file = st.file_uploader(
         "Upload Meltwater Data (.xlsx)",
@@ -570,7 +691,6 @@ with st.sidebar:
         help="Upload your Meltwater file in Excel format (.xlsx)."
     )
 
-    # --- Download Button ---
     if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
         st.markdown("---")
         st.markdown("#### Download Tagged Data")
@@ -589,28 +709,26 @@ if not st.session_state.api_key or uploaded_file is None:
         st.info("Upload your Meltwater Data (.xlsx) in the sidebar to begin the analysis.")
     st.stop()
 
-# --- Main App Logic (Container for upload feedback) ---
+# --- Main App Logic ---
 with st.container():
     if st.session_state.df_full is None:
         try:
             uploaded_file.seek(0)
             st.info("Reading Excel file (.xlsx)...")
 
-            # --- Excel Reading ---
             df = pd.read_excel(
                 uploaded_file,
                 skiprows=HEADER_ROWS_TO_SKIP,
                 engine='openpyxl'
             )
 
-            # --- Final Validation and Preprocessing ---
             df.columns = df.columns.str.strip()
             required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
             if not all(col in df.columns for col in required_cols):
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
 
-            # --- Date Parsing (parse full datetime in Date column) ---
+            # Parse full datetime in Date column
             df[DATE_COLUMN] = df[DATE_COLUMN].astype(str).str.strip()
             df['DATETIME'] = pd.to_datetime(
                 df[DATE_COLUMN],
@@ -624,22 +742,18 @@ with st.container():
             else:
                 st.success(f"Date parsing complete: {parse_success_rate:.1f}% success rate ({df['DATETIME'].notna().sum():,} valid datetimes).")
 
-            # Combined text column
             df['POST_TEXT'] = df.apply(
                 lambda row: ' | '.join(str(row[col]) for col in TEXT_COLUMNS if col in df.columns),
                 axis=1
             )
 
-            # Likes numeric
             df[ENGAGEMENT_COLUMN] = pd.to_numeric(df[ENGAGEMENT_COLUMN], errors='coerce').fillna(0).astype(int)
 
-            # Remove rows where all text columns were NaN or empty strings
             df = df[df['POST_TEXT'].str.strip().str.lower() != 'nan | nan | nan']
 
             st.session_state.df_full = df.copy()
             st.success("File uploaded successfully!")
 
-            # --- DATA SUMMARY ---
             data_rows = df.shape[0]
             valid_dates = df['DATETIME'].dropna()
             date_min = valid_dates.min().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
@@ -651,7 +765,6 @@ with st.container():
             """)
             st.markdown("---")
 
-            # Clear previous results when a new file is uploaded
             st.session_state.narrative_data = None
             st.session_state.classified_df = None
             st.session_state.data_summary_text = None
@@ -711,12 +824,13 @@ with st.container():
             else:
                 st.subheader("Narrative Analysis Dashboard")
 
-                # 1. Bar Chart: Volume only
+                # 1) Post Volume by Theme (Bar)
                 st.markdown("### Post Volume by Theme")
                 theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(
                     Post_Volume=('POST_TEXT', 'size'),
                 ).reset_index()
                 theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
+
                 fig_bar = px.bar(
                     theme_metrics,
                     x='NARRATIVE_TAG',
@@ -725,12 +839,12 @@ with st.container():
                     labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
                     height=500,
                     color='NARRATIVE_TAG',
-                    color_discrete_sequence=px.colors.qualitative.Plotly
+                    color_discrete_sequence=VIBRANT_QUAL
                 )
-
-                TICK_WRAP_WIDTH_BAR = 15
+                # Wrap long x labels and remove borders
                 def wrap_labels_bar(text):
-                    return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH_BAR))
+                    return '<br>'.join(textwrap.wrap(text, 15))
+                fig_bar.update_traces(marker_line_width=0)
                 fig_bar.update_layout(
                     xaxis={
                         'categoryorder':'total descending',
@@ -740,12 +854,18 @@ with st.container():
                         'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
                         'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
                     },
-                    showlegend=False,
-                    template='plotly_white'
+                    showlegend=False
                 )
-                st.plotly_chart(fig_bar, use_container_width=True)
+                fig_bar = finalize_figure(
+                    fig_bar,
+                    title="Post volume by narrative theme",
+                    subtitle="Sorted by total posts",
+                    source="Meltwater; analysis by app",
+                    height=500
+                )
+                st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
-                # 2. Line Graph: Trend Over Time (Volume)
+                # 2) Narrative Volume Trend Over Time (Line, with glow underlay)
                 st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
                 df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
                 df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
@@ -762,42 +882,42 @@ with st.container():
                         title='Volume Trend by Narrative Theme (7-Day Rolling Average)',
                         labels={'Volume_Roll_Avg': 'Rolling Avg. Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
                         height=550,
-                        color_discrete_sequence=px.colors.qualitative.Plotly
+                        color_discrete_sequence=VIBRANT_QUAL
                     )
+                    fig_line.update_traces(mode="lines", line={"width": 3})
                     fig_line.update_layout(
                         xaxis_title="Date",
-                        yaxis_title="Rolling Avg. Post Volume",
-                        legend=dict(
-                            orientation="h",
-                            yanchor="bottom",
-                            y=-0.3,
-                            xanchor="center",
-                            x=0.5
-                        ),
-                        template='plotly_white'
+                        yaxis_title="7-day rolling avg. posts",
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
                     )
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    fig_line = finalize_figure(
+                        fig_line,
+                        title="Narrative volume over time",
+                        subtitle="7-day rolling average, by theme",
+                        source="Meltwater; analysis by app",
+                        height=520
+                    )
+                    fig_line = add_line_glow(fig_line, width=6, opacity=0.25)
+                    st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
 
-                # 3. Stacked Bar Charts: Influencer Share per Theme (Separate charts)
+                # 3) Stacked Bar Charts: Influencer Share per Theme (Separate charts)
                 st.markdown("### Influencer Share of Engagement")
                 for theme in df_viz['NARRATIVE_TAG'].unique():
                     fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                     if fig_theme:
-                        st.plotly_chart(fig_theme, use_container_width=True)
+                        st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
 
-                # 4. Overall Top Authors by Likes
+                # 4) Overall Top Authors by Likes
                 st.markdown("### Top 10 Overall Authors by Total Likes")
-                st.plotly_chart(
-                    plot_overall_author_ranking(
-                        df_classified,
-                        AUTHOR_COLUMN,
-                        ENGAGEMENT_COLUMN,
-                        top_n=10
-                    ),
-                    use_container_width=True
+                fig_overall = plot_overall_author_ranking(
+                    df_classified,
+                    AUTHOR_COLUMN,
+                    ENGAGEMENT_COLUMN,
+                    top_n=10
                 )
+                st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
 
                 # --- Insights from the Data (Step 3) ---
                 st.markdown("---")
