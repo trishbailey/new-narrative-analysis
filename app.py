@@ -238,7 +238,7 @@ with st.container(border=True):
     st.info("👈 Upload your Meltwater CSV file to begin the 3-step analysis.")
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
-            df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape')
+            df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=';')
 
             # Data Preprocessing/Cleaning
             df.columns = df.columns.str.strip()
