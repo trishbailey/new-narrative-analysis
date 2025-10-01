@@ -388,7 +388,12 @@ with st.container(border=True):
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
             # Combine Date and Time
-            df['DATETIME'] = pd.to_datetime(df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), errors='coerce', dayfirst=True)
+            # FIX: Explicitly format the date to handle common 'DD-Mon-YYYY' or 'MM/DD/YYYY' formats reliably
+            df['DATETIME'] = pd.to_datetime(
+                df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), 
+                errors='coerce', 
+                format='%d-%b-%Y %I:%M%p'  # Example format: '23-Sep-2025 09:22AM'
+            )
             df.dropna(subset=['DATETIME'], inplace=True)
             
             # Create a combined text column
