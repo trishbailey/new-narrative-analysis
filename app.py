@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import concurrent.futures
 import threading
 import textwrap 
+import numpy as np
 
 # ML Imports for Hybrid Classification
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -32,17 +33,46 @@ TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
-# REMOVED: TIME_COLUMN (Using Date only)
+# REMOVED: TIME_COLUMN 
 
 # --- Streamlit Setup ---
 st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
-    # FIX: Set the sidebar to auto or collapsed to hide it completely or ensure it's not the focus
-    initial_sidebar_state="collapsed" 
+    # Set the initial state to collapsed for a clean, secure start
+    initial_sidebar_state="collapsed", 
+    # Attempt to enforce dark theme and appealing colors
+    menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
-st.title("Grok-Powered Narrative Analyzer")
-# Removed initial prompt line: Upload your Meltwater data to perform a 3-step analysis.
+st.markdown("""
+<style>
+/* General dark mode style tweaks for a professional look */
+.stApp {
+    background-color: #1e1e1e;
+    color: #ffffff;
+}
+h1, h2, h3, h4, h5, h6, .stMarkdown {
+    color: #ffffff;
+}
+/* Adjust expander styling to look better in dark mode */
+.streamlit-expander {
+    background-color: #2c2c2c;
+    border-radius: 8px;
+    padding: 10px;
+}
+/* Adjust plotly chart background for dark mode */
+.js-plotly-plot {
+    background-color: #1e1e1e !important; 
+}
+/* Custom style for the sidebar content to look visually appealing */
+.sidebar .stContainer {
+    background-color: #2c2c2c; /* A slightly lighter dark background */
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 # --- Utility Functions ---
@@ -322,7 +352,7 @@ def generate_takeaways(summary_data, api_key):
             return None
     return None
 
-# --- Custom Visualization Function ---
+# --- Custom Visualization Functions ---
 
 def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_col, top_n=5):
     """
@@ -377,7 +407,8 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
         category_orders={
             theme_col: df_top_authors.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()
         },
-        color_discrete_sequence=px.colors.qualitative.Alphabet # Highly distinct color scale for authors
+        # Use a wide range of colors for distinct authors
+        color_discrete_sequence=px.colors.qualitative.Alphabet 
     )
 
     # 6. Customize Tooltips and Layout
@@ -392,9 +423,14 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
     )
     
     # Use wrapping for theme labels (Y-axis)
-    TICK_WRAP_WIDTH = 25
+    TICK_WRAP_WIDTH = 15 # Shorter width for better fit on y-axis
+    
+    # Function to wrap text for tick labels
+    def wrap_labels(text):
+        return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH))
+
     wrapped_labels = {
-        theme: textwrap.fill(theme, TICK_WRAP_WIDTH).replace('\n', '<br>')
+        theme: wrap_labels(theme)
         for theme in df_top_authors[theme_col].unique()
     }
     
@@ -407,7 +443,8 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
             'automargin': True
         },
         showlegend=True,
-        legend_title_text="Top Influencers"
+        legend_title_text="Top Influencers",
+        template='plotly_dark'
     )
 
     return fig
@@ -445,7 +482,7 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
         y=author_col,
         color='Primary_Theme', # Color by primary theme
         orientation='h',
-        title=f'Top {top_n} Influencers by Total Likes (Colored by Primary Theme)',
+        title=f'Top {top_n} Influencers by Total Likes',
         labels={
             'Total_Likes': 'Total Likes (Engagement)',
             author_col: 'Author/Influencer',
@@ -472,7 +509,8 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
     # Improve layout for readability
     fig.update_layout(
         yaxis={'title': None, 'automargin': True}, # Remove y-axis title for cleaner look
-        xaxis={'tickformat': ','} # Format large numbers on x-axis
+        xaxis={'tickformat': ',', 'title': 'Total Likes'}, # Format large numbers on x-axis
+        template='plotly_dark'
     )
 
     return fig
@@ -495,29 +533,58 @@ XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
 
 
-# --- Step 0: File Upload & Setup ---
-st.markdown("---")
-st.subheader("Step 0: Upload Meltwater Data")
+# --- SIDEBAR (Configuration and Upload) ---
+with st.sidebar:
+    st.markdown("## Configuration & Data Upload")
+    
+    # --- API Key Check (Discreet) ---
+    if not st.session_state.api_key:
+        st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
+    else:
+        st.success("Grok API Key loaded.")
 
-# Updated file_uploader to accept ONLY XLSX
-uploaded_file = st.file_uploader(
-    "Upload your Meltwater Data (.xlsx)", 
-    type=['xlsx'],
-    help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
-)
+    # --- Upload Component ---
+    st.markdown("---")
+    st.markdown("#### 1. Upload File")
+    uploaded_file = st.file_uploader(
+        "Upload Meltwater Data (.xlsx)", 
+        type=['xlsx'],
+        help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
+    )
 
-# --- Security and API Key Check ---
+    # --- Model Information ---
+    st.markdown("---")
+    st.markdown("#### 2. Model Configuration")
+    st.markdown(f"""
+    - **Theme Gen:** `{GROK_MODEL}` ({MAX_POSTS_FOR_ANALYSIS} posts)
+    - **AI Seed:** `{CLASSIFICATION_MODEL}` ({AI_SEED_SAMPLE_SIZE} posts)
+    - **ML Classif:** Local Scikit-learn
+    """)
+
+    # --- Data Summary Placeholder ---
+    st.markdown("---")
+    st.markdown("#### 3. Data Summary")
+    if st.session_state.df_full is not None:
+        valid_dates = st.session_state.df_full['DATETIME'].dropna()
+        date_min = valid_dates.min().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
+        date_max = valid_dates.max().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
+        
+        st.markdown(f"""
+        - **Total Rows:** {st.session_state.df_full.shape[0]:,}
+        - **Date Span:** {date_min} to {date_max}
+        """)
+    else:
+        st.info("Upload file to see summary.")
+
+# --- STOP APP IF NO KEY ---
 if not st.session_state.api_key:
-    st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable for the application to run.")
     st.stop()
 
 
+# --- Main App Logic ---
+
 # Container for upload feedback
-with st.container(border=True):
-    # FIX: Removed the prompt line here and streamlined the information display
-    st.markdown(
-        "Upload your Meltwater data to perform a 3-step thematic and quantitative analysis using Grok AI and hybrid ML."
-    )
+with st.container():
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
@@ -525,7 +592,6 @@ with st.container(border=True):
             st.info("Reading Excel file (.xlsx)...")
             
             # --- Excel Reading (Standard and reliable for fixed structure) ---
-            # Using skiprows=1 because user confirmed columns start on the second row (index 1).
             df = pd.read_excel(
                 uploaded_file,
                 skiprows=HEADER_ROWS_TO_SKIP, 
@@ -544,30 +610,15 @@ with st.container(border=True):
                 # Providing the exact names the code is looking for to aid debugging
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
-            # --- Date Parsing (FINAL FIX for time series) ---
+            # --- Date Parsing (REVERTED TO PROVEN FIX: DD-Mon-YYYY) ---
+            date_series = df[DATE_COLUMN].astype(str)
             
-            date_series = df[DATE_COLUMN]
-            
-            # Use a single, explicit format for robustness based on the user's image: 'DD-Mon-YYYY'
-            # If this format fails, Pandas will automatically use its internal inference as a secondary effort.
+            # FIX: Use the specific, successful format string: DD-Mon-YYYY
             df['DATETIME'] = pd.to_datetime(
                 date_series, 
-                format='%d-%b-%Y', # Explicit format from user's image (23-Sep-2025)
+                format='%d-%b-%Y', # Explicitly using the DD-Mon-YYYY format
                 errors='coerce' # Set invalid parsing to NaT
             )
-            
-            # Fallback: Check for dates that might be stored as numeric floats (common Excel style)
-            if df['DATETIME'].isnull().sum() > 0 and pd.api.types.is_numeric_dtype(date_series.dropna()):
-                 st.warning("Attempting conversion of numeric Excel dates...")
-                 
-                 numeric_dates = pd.to_datetime(
-                    date_series, 
-                    unit='D', 
-                    origin='1899-12-30', 
-                    errors='coerce'
-                )
-                 # Combine the explicit format result with the numeric fallback
-                 df['DATETIME'] = df['DATETIME'].combine_first(numeric_dates)
             
             # --- End Date Parsing ---
             
@@ -579,96 +630,64 @@ with st.container(border=True):
             
             # Convert Likes to numeric, handling errors
             df[ENGAGEMENT_COLUMN] = pd.to_numeric(df[ENGAGEMENT_COLUMN], errors='coerce').fillna(0).astype(int)
+            # Remove rows where all text columns were NaN or empty strings (no post content)
+            df = df[df['POST_TEXT'].str.strip().str.lower() != 'nan | nan | nan']
 
             st.session_state.df_full = df.copy()
-            
-            data_rows = df.shape[0]
-            
-            # --- Safe Date Calculation for Display ---
-            valid_dates = df['DATETIME'].dropna()
-            if not valid_dates.empty:
-                date_min = valid_dates.min().strftime('%Y-%m-%d')
-                date_max = valid_dates.max().strftime('%Y-%m-%d')
-            else:
-                date_min = "N/A (No valid dates)"
-                date_max = "N/A (No valid dates)"
-            # --- END Safe Date Calculation ---
-
-
-            st.success("File uploaded successfully! ")
-            st.markdown(f"""
-            - Data rows: **{data_rows:,}**
-            - Date range: **{date_min}** to **{date_max}**
-            """)
+            st.success("File uploaded successfully!")
             
             # Clear previous results when a new file is uploaded
             st.session_state.narrative_data = None
             st.session_state.classified_df = None
             st.session_state.data_summary_text = None
+            st.rerun() # Rerun to update sidebar summary
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
             st.session_state.df_full = None
-
-if st.session_state.df_full is None:
-    st.stop()
-
-# --- Model Information (Moved from Sidebar) ---
-with st.expander("View Model Configuration"):
-    st.subheader("Model Usage")
-    st.markdown(f"""
-    - **Theme Generation (Step 1):** `{GROK_MODEL}` ({MAX_POSTS_FOR_ANALYSIS} posts)
-    - **AI Seed Training (Step 2/Phase 1):** `{CLASSIFICATION_MODEL}` ({AI_SEED_SAMPLE_SIZE} posts)
-    - **ML Classification (Step 2/Phase 2):** Local Scikit-learn (Full Dataset)
-    - **Executive Synthesis (Step 3):** `{GROK_MODEL}` (Data Summary)
-    """)
+    
+    elif st.session_state.df_full is None:
+        st.info("Upload your Meltwater Data (.xlsx) in the sidebar to begin the analysis.")
+        st.stop()
 
 
-# --- Step 1: Generate Themes ---
+# --- Narratives Extraction (Step 1) ---
 st.markdown("---")
-st.header("Step 1: Generate Themes (Qualitative)")
+st.header("1. Narratives Extraction")
 
-# FIX: Check if st.session_state.classified_df is None before checking its empty state.
-if st.session_state.narrative_data is not None and st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
-    pass # Themes and classification are complete, move on.
-else:
-    # Logic for starting Step 1
-    if not st.session_state.narrative_data:
-        if st.button(f"Start Theme Generation using {GROK_MODEL}"):
-            # Key check already done at the top, just need to run
-            
-            # Take a sample of 100 posts for narrative generation
-            df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
-            corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
-            
-            narrative_list = analyze_narratives(corpus, st.session_state.api_key)
-            
-            if narrative_list:
-                st.session_state.narrative_data = narrative_list
-                st.success("Narratives successfully generated.")
-                st.rerun()
-        else:
-            st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
-            
-    if st.session_state.narrative_data:
-        st.subheader("Generated Narrative Themes")
-        # FIX: Display themes as markdown list, not a DataFrame
-        for i, narrative in enumerate(st.session_state.narrative_data):
-            st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
+if not st.session_state.narrative_data:
+    if st.button(f"Start Narrative Extraction using {GROK_MODEL}"):
         
-        # Store list of titles for Step 2
-        st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
-        st.success("Themes are ready for the hybrid classification step.")
+        # Take a sample of 100 posts for narrative generation
+        df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
+        corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
+        
+        narrative_list = analyze_narratives(corpus, st.session_state.api_key)
+        
+        if narrative_list:
+            st.session_state.narrative_data = narrative_list
+            st.success("Narratives successfully generated.")
+            st.rerun()
+    else:
+        st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
+        
+if st.session_state.narrative_data:
+    st.subheader("Identified Narrative Themes")
+    # FIX: Display themes as structured markdown list
+    for i, narrative in enumerate(st.session_state.narrative_data):
+        st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
+    
+    st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
+    st.success("Themes are ready for the hybrid classification step.")
 
 
-# --- Step 2: Classify & Dashboard (Quantitative) ---
+# --- Data Analysis by Narrative (Step 2) ---
 st.markdown("---")
-st.header("Step 2: Hybrid Classification & Dashboard")
+st.header("2. Data Analysis by Narrative")
 
 # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
 if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
     if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)"):
-        # Key check already done at the top, just need to run
         
         df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
         
@@ -679,8 +698,7 @@ if st.session_state.narrative_data and (st.session_state.classified_df is None o
 
 if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
     df_classified = st.session_state.classified_df
-    st.subheader("Narrative Analysis Dashboard")
-
+    
     # Filter out the "Other/Unrelated" category for visualization, but keep in metrics
     # We must ensure we filter only on rows with valid dates for trend analysis
     df_viz = df_classified[
@@ -689,10 +707,12 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
     ].copy()
     
     if df_viz.empty:
-        st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard will be empty.")
+        st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
     else:
+        st.subheader("Narrative Analysis Dashboard")
+        
         # 1. Bar Chart: Volume only
-        st.markdown("### 1. Post Volume by Theme")
+        st.markdown("### Post Volume by Theme")
 
         theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(
             Post_Volume=('POST_TEXT', 'size'),
@@ -711,22 +731,29 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
             color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors
         )
         
-        # FIX: Smooth Label Wrapping for the X-axis (using Plotly's methods for cleaner look)
+        # FIX: Ensure labels are wrapped and centered below the bar
+        TICK_WRAP_WIDTH_BAR = 15
+        def wrap_labels_bar(text):
+            return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH_BAR))
+        
         fig_bar.update_layout(
             xaxis={
                 'categoryorder':'total descending',
                 'tickangle': 0, 
                 'automargin': True,
                 'tickfont': {'size': 12},
-                # Use Plotly's word wrapping helper by setting a small width
-                'tickformat': ',\n' 
+                # Apply wrapping function to tick labels
+                'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
+                'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
             }, 
-            showlegend=False # Hide legend as colors are mapped to theme names on the axis
+            showlegend=False, # Hide legend as colors are mapped to theme names on the axis
+            template='plotly_dark'
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
+
         # 2. Line Graph: Trend Over Time (Volume)
-        st.markdown("### 2. Narrative Volume Trend Over Time (7-Day Rolling Average)")
+        st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
 
         # Group data by Date and Theme, aggregating volume
         df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
@@ -748,14 +775,15 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
                 title='7-Day Rolling Average: Posts by Theme',
                 labels={'Volume_Roll_Avg': 'Rolling Post Volume (Count)', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Narrative Theme'},
                 height=500,
-                color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors for themes
+                color_discrete_sequence=px.colors.qualitative.Plotly, # Distinct colors for themes
+                template='plotly_dark'
             )
             st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.warning("Trend analysis requires posts spread over multiple days with valid dates, which was not found.")
 
         # 3. New Horizontal Stacked Bar Chart: Author Share in Likes per Theme
-        st.markdown("### 3. Influencer Share of Total Likes by Theme")
+        st.markdown("### Influencer Share of Total Likes by Theme")
         
         if not df_viz.empty:
             fig_stacked = plot_stacked_author_share(
@@ -769,8 +797,8 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
         else:
             st.info("Insufficient data to generate the Influencer Share chart.")
 
-        # 4. Overall Top 10 Posters (New Visual Chart)
-        st.markdown("### 4. Overall Top 10 Authors by Total Likes")
+        # 4. Overall Top 10 Authors (New Visual Chart)
+        st.markdown("### Overall Top 10 Authors by Total Likes")
         
         # Plot the new visual chart
         if not df_classified.empty:
@@ -785,13 +813,14 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
             st.info("Insufficient classified data to generate the Overall Top Authors chart.")
 
 
-    # --- Step 3: Generate Key Takeaways ---
-    st.markdown("---")
-    st.header("Step 3: Generate Key Takeaways (Synthesis)")
+# --- Insights from the Data (Step 3) ---
+st.markdown("---")
+st.header("3. Insights from the Data")
     
+if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
     if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}"):
         
-        data_summary_text = perform_data_crunching_and_summary(df_classified)
+        data_summary_text = perform_data_crunching_and_summary(st.session_state.classified_df)
 
         takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
         
