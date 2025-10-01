@@ -54,7 +54,7 @@ st.set_page_config(
     menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
 
-# --- Global CSS (Light Mode UI + Inter font + subtle chart glow) ---
+# --- Global CSS (Light Mode UI + Inter font) ---
 st.markdown(
 f"""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -118,26 +118,7 @@ code {{
     background-color: {BG_COLOR} !important;
 }}
 
-/* Subtle glow for bars and markers */
-.js-plotly-plot svg .bar,
-.js-plotly-plot svg .legendpoints path,
-.js-plotly-plot svg .points path {{
-  filter: drop-shadow(0 0 4px rgba(0,0,0,0.08))
-          drop-shadow(0 2px 6px rgba(0,0,0,0.08));
-}}
-
-/* Slight glow on lines */
-.js-plotly-plot svg .lines path,
-.js-plotly-plot svg .scatterlayer path {{
-  filter: drop-shadow(0 0 3px rgba(0,0,0,0.10));
-}}
-
-/* Hover label refinement */
-.js-plotly-plot .hoverlayer .hoverlabel {{
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
-}}
-
-/* Chart captions (if you want to use them in markdown) */
+/* Chart captions (optional) */
 .chart-subtitle {{
   font-size: 0.95rem; 
   color: #6b7280;
@@ -171,8 +152,8 @@ VIBRANT_QUAL = [
 ]
 
 # Start from plotly_white and update layout properties
-vibrant_glow_layout = pio.templates["plotly_white"].layout.to_plotly_json()
-vibrant_glow_layout.update({
+vibrant_layout = pio.templates["plotly_white"].layout.to_plotly_json()
+vibrant_layout.update({
     "font": {"family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif", "size": 14, "color": "#111111"},
     "colorway": VIBRANT_QUAL,
     "title": {"x": 0.0, "xanchor": "left", "y": 0.95, "yanchor": "top", "font": {"size": 20}},
@@ -198,12 +179,12 @@ vibrant_glow_layout.update({
     "hovermode": "x unified",
     "hoverlabel": {"bgcolor": "white", "bordercolor": "#d1d5db", "font": {"family": "Inter", "size": 12, "color": "#111111"}}
 })
-pio.templates["vibrant_glow"] = pio.templates["plotly_white"]
-pio.templates["vibrant_glow"].layout.update(vibrant_glow_layout)
+pio.templates["vibrant"] = pio.templates["plotly_white"]
+pio.templates["vibrant"].layout.update(vibrant_layout)
 
-# --- Helpers for presentation ---
+# --- Helpers for presentation (no glow) ---
 def finalize_figure(fig, title:str, subtitle:str|None=None, source:str|None=None, height:int|None=None):
-    fig.update_layout(template="vibrant_glow", title={"text": title})
+    fig.update_layout(template="vibrant", title={"text": title})
     if height:
         fig.update_layout(height=height)
     if subtitle:
@@ -216,38 +197,6 @@ def finalize_figure(fig, title:str, subtitle:str|None=None, source:str|None=None
             text=f"<span style='font-size:12px;color:#9ca3af'>Source: {source}</span>",
             xref="paper", yref="paper", x=0, y=-0.25, showarrow=False, align="left"
         )
-    return fig
-
-def add_line_glow(fig, width:int=6, opacity:float=0.25):
-    """
-    For each line trace, add an underlay 'glow' trace with extra width & low opacity.
-    Keeps original colors; renders underneath the main line.
-    """
-    from copy import deepcopy
-    inserts = []
-    for idx, tr in enumerate(fig.data):
-        if getattr(tr, "type", "") == "scatter" and "lines" in (tr.mode or ""):
-            glow = deepcopy(tr)
-            glow.update(
-                line=dict(
-                    color=getattr(tr, "line", {}).get("color", None),
-                    width=(getattr(tr, "line", {}).get("width", 2)) + width
-                ),
-                opacity=opacity,
-                hoverinfo="skip",
-                showlegend=False
-            )
-            inserts.append((idx, glow))
-    # Insert glow traces before their originals
-    offset = 0
-    for idx, glow in inserts:
-        fig.add_trace(glow, row=None, col=None)
-        # Move the newly appended trace to the correct position
-        d = list(fig.data)
-        glow_trace = d.pop(-1)
-        d.insert(idx + offset, glow_trace)
-        fig.data = tuple(d)
-        offset += 1
     return fig
 
 def wrap_text(s: str, width: int = 16) -> str:
@@ -477,72 +426,54 @@ def generate_takeaways(summary_data, api_key):
             return None
     return None
 
-# --- Custom Visualization Functions ---
+# --- Custom Visualization Functions (no 'Other/Long Tail') ---
 def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_col, top_n=5):
     """
-    Generates a Plotly horizontal stacked bar chart showing total likes per theme,
-    with stacked segments for the top N authors + 'Other'.
+    Horizontal stacked bar: total likes per theme, segments = top N authors (no 'Other/Long Tail').
     """
-    theme_total_likes = df_classified.groupby(theme_col)[engagement_col].sum().rename('Theme_Total')
+    # Total likes per theme (for % tooltip)
+    theme_total_likes = df_classified.groupby(theme_col)[engagement_col].sum().rename('Theme_Total').reset_index()
 
-    df_grouped = df_classified.groupby([theme_col, author_col])[engagement_col].sum().reset_index(name='Author_Likes')
+    # Likes by Theme and Author
+    df_grouped = (df_classified
+                  .groupby([theme_col, author_col])[engagement_col]
+                  .sum()
+                  .reset_index(name='Author_Likes'))
 
-    def get_top_n_authors(group):
-        top_authors = group.nlargest(top_n, 'Author_Likes')
-        other_likes = group['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
-        if other_likes > 0 and group['Author_Likes'].sum() > 0:
-            other_row = pd.DataFrame({
-                theme_col: [group.name],
-                author_col: ['Other/Long Tail'],
-                'Author_Likes': [other_likes]
-            })
-            return pd.concat([top_authors, other_row], ignore_index=True)
-        return top_authors
+    # Keep only top N authors per theme (no 'Other')
+    df_top = (df_grouped
+              .sort_values(['%s' % theme_col, 'Author_Likes'], ascending=[True, False])
+              .groupby(theme_col, as_index=False)
+              .head(top_n))
 
-    df_top_authors = df_grouped.groupby(theme_col).apply(get_top_n_authors).reset_index(drop=True)
-    df_top_authors = df_top_authors[df_top_authors['Author_Likes'] > 0].copy()
-
-    df_top_authors = df_top_authors.merge(theme_total_likes, on=theme_col)
-    df_top_authors['Percentage'] = (df_top_authors['Author_Likes'] / df_top_authors['Theme_Total']) * 100
+    # Merge totals for percent
+    df_top = df_top.merge(theme_total_likes, on=theme_col, how='left')
+    df_top['Percentage'] = np.where(df_top['Theme_Total'] > 0,
+                                    (df_top['Author_Likes'] / df_top['Theme_Total']) * 100,
+                                    0.0)
 
     fig = px.bar(
-        df_top_authors,
+        df_top,
         x='Author_Likes',
         y=theme_col,
         color=author_col,
         orientation='h',
         title=f'Total Likes per Theme with Top {top_n} Author Share',
-        labels={
-            'Author_Likes': 'Total Likes',
-            theme_col: 'Narrative Theme',
-            author_col: 'Influencer Share'
-        },
+        labels={'Author_Likes': 'Total Likes', theme_col: 'Narrative Theme', author_col: 'Influencer'},
         height=550,
-        category_orders={
-            theme_col: df_top_authors.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()
-        },
+        category_orders={theme_col: df_top.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()},
         color_discrete_sequence=VIBRANT_QUAL
     )
 
     fig.update_traces(
-        hovertemplate=(
-            f'<b>%{{y}}</b><br>'
-            f'Author: %{{customdata[0]}}<br>'
-            f'Likes: %{{x:,}}<br>'
-            f'Share: %{{customdata[1]:.2f}}%<extra></extra>'
-        ),
-        customdata=df_top_authors[[author_col, 'Percentage']].values,
+        hovertemplate='<b>%{y}</b><br>Author: %{customdata[0]}<br>Likes: %{x:,}<br>Share: %{customdata[1]:.2f}%<extra></extra>',
+        customdata=df_top[[author_col, 'Percentage']].values,
         marker_line_width=0
     )
 
-    wrapped_labels = {theme: wrap_text(theme, 15) for theme in df_top_authors[theme_col].unique()}
+    wrapped = {t: wrap_text(t, 15) for t in df_top[theme_col].unique()}
     fig.update_layout(
-        yaxis={
-            'tickmode': 'array',
-            'tickvals': list(wrapped_labels.keys()),
-            'ticktext': list(wrapped_labels.values()),
-            'automargin': True
-        },
+        yaxis={'tickmode': 'array', 'tickvals': list(wrapped.keys()), 'ticktext': list(wrapped.values()), 'automargin': True},
         showlegend=True,
         legend_title_text="Top Influencers"
     )
@@ -550,7 +481,7 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
     fig = finalize_figure(
         fig,
         title=f"Engagement share by author within each theme (Top {top_n})",
-        subtitle="Bars show total likes per theme; segments show author share",
+        subtitle="Bars show total likes per theme; segments show author share of the top authors only",
         source="Meltwater; analysis by app",
         height=550
     )
@@ -558,18 +489,14 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
 
 def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n=10):
     """
-    Generates a Plotly horizontal bar chart showing top N authors by Total Likes,
-    colored by their most frequent theme.
+    Horizontal bar: top N authors by total likes, colored by most frequent theme.
     """
     df_classified['Theme_Rank'] = df_classified.groupby([author_col, 'NARRATIVE_TAG'])['POST_TEXT'].transform('count')
     df_classified = df_classified.sort_values(by=['Theme_Rank'], ascending=False)
-    df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']]
-    df_primary_theme = df_primary_theme.rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
+    df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']].rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
 
-    overall_metrics = df_classified.groupby(author_col).agg(
-        Total_Likes=(engagement_col, 'sum'),
-        Total_Posts=('POST_TEXT', 'size')
-    ).reset_index()
+    overall_metrics = df_classified.groupby(author_col).agg(Total_Likes=(engagement_col, 'sum'),
+                                                            Total_Posts=('POST_TEXT', 'size')).reset_index()
 
     overall_metrics = overall_metrics.merge(df_primary_theme, on=author_col, how='left')
     overall_metrics = overall_metrics.sort_values(by='Total_Likes', ascending=False).head(top_n)
@@ -581,23 +508,14 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
         color='Primary_Theme',
         orientation='h',
         title=f'Top {top_n} Influencers by Total Likes (Colored by Primary Theme)',
-        labels={
-            'Total_Likes': 'Total Likes (Engagement)',
-            author_col: 'Author/Influencer',
-            'Primary_Theme': 'Primary Narrative Theme'
-        },
+        labels={'Total_Likes': 'Total Likes (Engagement)', author_col: 'Author/Influencer', 'Primary_Theme': 'Primary Narrative Theme'},
         height=550,
         category_orders={author_col: overall_metrics[author_col].tolist()},
         color_discrete_sequence=VIBRANT_QUAL
     )
 
     fig.update_traces(
-        hovertemplate=(
-            f'<b>%{{y}}</b><br>'
-            f'Likes: %{{x:,}}<br>'
-            f'Posts: %{{customdata[0]}}<br>'
-            f'Primary Theme: %{{customdata[1]}}<extra></extra>'
-        ),
+        hovertemplate='<b>%{y}</b><br>Likes: %{x:,}<br>Posts: %{customdata[0]}<br>Primary Theme: %{customdata[1]}<extra></extra>',
         customdata=overall_metrics[['Total_Posts', 'Primary_Theme']].values,
         marker_line_width=0
     )
@@ -615,23 +533,17 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
 
 def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n=5):
     """
-    Generates a single horizontal stacked bar chart for one theme's top authors.
+    Single theme horizontal stacked bar: top N authors only (no 'Other/Long Tail').
     """
     df_theme = df_viz[df_viz['NARRATIVE_TAG'] == theme].copy()
     if df_theme.empty:
         return None
 
     df_grouped = df_theme.groupby(author_col)[engagement_col].sum().reset_index(name='Author_Likes')
-    top_authors = df_grouped.nlargest(top_n, 'Author_Likes')
-    other_likes = df_grouped['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
-    if other_likes > 0:
-        other_row = pd.DataFrame({author_col: ['Other/Long Tail'], 'Author_Likes': [other_likes]})
-        df_top = pd.concat([top_authors, other_row], ignore_index=True)
-    else:
-        df_top = top_authors
+    df_top = df_grouped.nlargest(top_n, 'Author_Likes')  # no 'Other'
 
     theme_total = df_theme[engagement_col].sum()
-    df_top['Percentage'] = (df_top['Author_Likes'] / theme_total) * 100
+    df_top['Percentage'] = np.where(theme_total > 0, (df_top['Author_Likes'] / theme_total) * 100, 0.0)
 
     fig = px.bar(
         df_top,
@@ -645,7 +557,7 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
         color_discrete_sequence=VIBRANT_QUAL
     )
     fig.update_traces(
-        hovertemplate=f'<b>%{{y}}</b><br>Likes: %{{x:,}}<br>Share: %{{customdata[0]:.1f}}%<extra></extra>',
+        hovertemplate='<b>%{y}</b><br>Likes: %{x:,}<br>Share: %{customdata[0]:.1f}%<extra></extra>',
         customdata=df_top[['Percentage']],
         marker_line_width=0
     )
@@ -654,7 +566,7 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
     fig = finalize_figure(
         fig,
         title=f"{theme}: top {top_n} influencers by likes",
-        subtitle="Each bar shows author share within the theme",
+        subtitle="Share computed against total theme likes; only top authors shown",
         source="Meltwater; analysis by app",
         height=380
     )
@@ -865,7 +777,7 @@ with st.container():
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
-                # 2) Narrative Volume Trend Over Time (Line, with glow underlay)
+                # 2) Narrative Volume Trend Over Time (Line)
                 st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
                 df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
                 df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
@@ -897,13 +809,12 @@ with st.container():
                         source="Meltwater; analysis by app",
                         height=520
                     )
-                    fig_line = add_line_glow(fig_line, width=6, opacity=0.25)
                     st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
 
-                # 3) Stacked Bar Charts: Influencer Share per Theme (Separate charts)
-                st.markdown("### Influencer Share of Engagement")
+                # 3) Stacked Bar Charts: Influencer Share per Theme (Top authors only)
+                st.markdown("### Influencer Share of Engagement (Top Authors Only)")
                 for theme in df_viz['NARRATIVE_TAG'].unique():
                     fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                     if fig_theme:
