@@ -73,7 +73,7 @@ st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
     initial_sidebar_state="expanded",
-    menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
+    menu_items={'About': "Narrative Analyzer for Meltwater Data"}
 )
 # --- Global CSS (Light Mode UI + Inter font) ---
 st.markdown(
