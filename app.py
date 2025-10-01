@@ -10,87 +10,115 @@ import concurrent.futures
 import threading
 import textwrap
 import numpy as np
+
 # ML Imports for Hybrid Classification
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.pipeline import Pipeline
+
 # --- Configuration ---
 XAI_API_KEY_ENV_VAR = 'XAI_API_KEY'
 GROK_MODEL = 'grok-4-fast-reasoning'
-CLASSIFICATION_MODEL = 'grok-3-mini' # Used only for the small AI seed
+CLASSIFICATION_MODEL = 'grok-3-mini'  # Used only for the small AI seed
 API_BASE_URL = "https://api.x.ai/v1/chat/completions"
-MAX_POSTS_FOR_ANALYSIS = 100 # Fixed sample size for Theme Generation
-AI_SEED_SAMPLE_SIZE = 50 # Fixed sample size for ML Training
+MAX_POSTS_FOR_ANALYSIS = 100  # Fixed sample size for Theme Generation
+AI_SEED_SAMPLE_SIZE = 50      # Fixed sample size for ML Training
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
+
 # Confirmed by user: Columns start on the second row (index 1)
 HEADER_ROWS_TO_SKIP = 1
+
 # --- Meltwater Data Column Mapping (CORRECTED AND FINALIZED) ---
 TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer'
 DATE_COLUMN = 'Date'
 TIME_COLUMN = 'Time'
+
 # FIX: Explicit format confirmed to work for Meltwater date/time strings
 DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
-# --- Streamlit Theme Configuration (NEW FIX for Button Color) ---
-# This sets the primary color for all 'primary' buttons to deep purple.
-PRIMARY_COLOR = "#581845"
-DARK_BG_COLOR = "#1e1e1e"
-LIGHT_BG_COLOR = "#2c2c2c"
-TEXT_COLOR = "#ffffff"
-# --- Inject Configuration into Streamlit (The clean, robust way) ---
+
+# --- Streamlit Theme Configuration (UPDATED for Light Mode) ---
+PRIMARY_COLOR = "#1E88E5"   # Blue for primary buttons
+BG_COLOR = "#ffffff"        # Main background
+SIDEBAR_BG = "#f7f7f7"      # Sidebar background
+TEXT_COLOR = "#333333"      # Main text
+HEADER_COLOR = "#111111"    # Headers
+
+# --- Inject Configuration into Streamlit (Light Mode CSS) ---
 st.set_page_config(
     page_title="Grok Narrative Analysis Dashboard",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
-# Use st.markdown to inject the styling needed for Dark Mode and custom colors
+
+# Use st.markdown to inject the styling needed for Light Mode and custom colors
 st.markdown(
 f"""
     <style>
-    /* Use the fixed colors defined above */
-[data-testid="stSidebar"] {{
-        background-color: {LIGHT_BG_COLOR};
-}}
-    /* Apply dark mode settings */
+    /* Sidebar */
+    [data-testid="stSidebar"] {{
+        background-color: {SIDEBAR_BG};
+        color: {TEXT_COLOR};
+    }}
+
+    /* App background + text */
     .stApp {{
-        background-color: {DARK_BG_COLOR};
+        background-color: {BG_COLOR};
         color: {TEXT_COLOR};
-}}
-    /* Ensure all text is readable */
-    h1, h2, h3, h4, h5, h6, .stMarkdown, .st-emotion-cache-pk30h1 {{
-        color: {TEXT_COLOR};
-}}
-    /* Ensure primary buttons use the defined color */
+    }}
+
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {{
+        color: {HEADER_COLOR} !important;
+    }}
+
+    /* General text */
+    p, span, label, div {{
+        color: {TEXT_COLOR} !important;
+    }}
+
+    /* Buttons (primary) */
     .stButton > button.primary {{
         background-color: {PRIMARY_COLOR} !important;
         border-color: {PRIMARY_COLOR} !important;
-        color: {TEXT_COLOR} !important;
-}}
+        color: white !important;
+    }}
     .stButton > button.primary:hover {{
-        background-color: #721e58 !important; /* Lighter purple on hover */
-        border-color: #721e58 !important;
-}}
-    /* Fix contrast for info/success boxes */
+        background-color: #1565C0 !important; /* darker blue */
+        border-color: #1565C0 !important;
+    }}
+
+    /* Also style any non-primary buttons for readability */
+    .stButton > button:not(.primary) {{
+        color: {HEADER_COLOR} !important;
+        border-color: #d0d0d0 !important;
+        background-color: #fafafa !important;
+    }}
+
+    /* Alerts */
     div[data-testid="stAlert"] * p, div[data-testid="stAlert"] * h5 {{
         color: {TEXT_COLOR} !important;
-}}
-    /* Lilac text for code snippets */
+    }}
+
+    /* Code snippets */
     code {{
-        background-color: #444444;
-        color: #c3b1e3;
+        background-color: #f2f2f2;
+        color: #d63384; /* magenta-like highlight */
         padding: 2px 4px;
         border-radius: 4px;
-}}
-    /* Fix for Plotly chart backgrounds in dark mode */
+    }}
+
+    /* Fix Plotly chart backgrounds in light mode */
     .js-plotly-plot {{
-        background-color: {DARK_BG_COLOR} !important;
-}}
+        background-color: {BG_COLOR} !important;
+    }}
     </style>
 """,
     unsafe_allow_html=True
 )
+
 # --- Utility Functions ---
 # Exponential Backoff for API calls
 def call_grok_with_backoff(payload, api_key, max_retries=5):
@@ -101,8 +129,8 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
     }
     for attempt in range(max_retries):
         try:
-            response = requests.post(API_BASE_URL, headers=headers, json=payload, timeout=300) # 5 min timeout
-            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            response = requests.post(API_BASE_URL, headers=headers, json=payload, timeout=300)  # 5 min timeout
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             result = response.json()
             if result.get('choices') and result['choices'][0].get('message'):
                 return result['choices'][0]['message']['content']
@@ -121,6 +149,7 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
             return None
     st.error("Max retries reached. API call failed.")
     return None
+
 # Single post classification for the AI Seed (Phase 1 of Step 2)
 def classify_post_for_seed(post_text, themes_list, api_key):
     """Classifies a single post against a list of themes for training data."""
@@ -140,14 +169,15 @@ def classify_post_for_seed(post_text, themes_list, api_key):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_query}
         ],
-        "temperature": 0.1, # Low temperature for deterministic output
-        "max_tokens": 50 # Keep output short
+        "temperature": 0.1,  # Low temperature for deterministic output
+        "max_tokens": 50     # Keep output short
     }
     response_text = call_grok_with_backoff(payload, api_key)
     # Clean and validate the response
     if response_text and response_text.strip() in themes_list or response_text.strip() == CLASSIFICATION_DEFAULT:
         return response_text.strip()
-    return CLASSIFICATION_DEFAULT # Fallback if Grok returns garbage
+    return CLASSIFICATION_DEFAULT  # Fallback if Grok returns garbage
+
 # --- Analysis Logic ---
 def analyze_narratives(corpus, api_key):
     """Calls Grok to generate narrative themes and summaries (Step 1)"""
@@ -193,6 +223,7 @@ def analyze_narratives(corpus, api_key):
             st.code(json_response)
             return None
     return None
+
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
     """Hybrid Classification: Grok labels seed, then ML model classifies the rest."""
     # 1. AI Seed Generation (Grok Labels a small sample)
@@ -202,6 +233,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     df_sample = df_full.sample(actual_seed_size, random_state=42).copy()
     df_remaining = df_full.drop(df_sample.index).copy()
     seed_tags = []
+
     # Use concurrent execution for the seed generation
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         # Submit all classification tasks for the seed
@@ -214,13 +246,17 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
         for i, future in enumerate(concurrent.futures.as_completed(future_to_post)):
             seed_tags.append(future.result())
             progress_bar.progress((i + 1) / actual_seed_size)
+
     df_sample['NARRATIVE_TAG'] = seed_tags
     progress_bar.empty()
+
     # Check if we have enough diverse training data
     if df_sample['NARRATIVE_TAG'].nunique() < 2:
         st.error("AI failed to generate diverse enough labels for training. Check generated themes or try increasing AI Seed Sample Size.")
         return None
+
     st.success(f"Phase 1 Complete: {len(df_sample)} examples labeled by Grok.")
+
     # 2. ML Model Training
     st.info("Phase 2: Training local TF-IDF/LinearSVC model on Grok's labels...")
     X_train = df_sample['POST_TEXT']
@@ -231,14 +267,17 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     ])
     model.fit(X_train, y_train)
     st.success("Phase 2 Complete: Local ML Model Trained.")
+
     # 3. ML Model Prediction
     st.info(f"Phase 3: Classifying remaining {len(df_remaining):,} posts with local model...")
     X_test = df_remaining['POST_TEXT']
     df_remaining['NARRATIVE_TAG'] = model.predict(X_test)
     st.success("Phase 3 Complete: Full dataset classification finished.")
+
     # Combine the labeled seed data and the predicted remaining data
     df_classified = pd.concat([df_sample, df_remaining])
     return df_classified
+
 # --- Data Crunching and Summary Generation (Step 3 Helper) ---
 def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     """Performs required data aggregation and formats it into a text summary for Grok."""
@@ -249,19 +288,19 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     ).reset_index()
     theme_metrics['Avg_Likes_Per_Post'] = theme_metrics['Total_Likes'] / theme_metrics['Volume']
     theme_metrics = theme_metrics.sort_values(by='Volume', ascending=False)
+
     narrative_summary = "Narrative Metrics (Volume, Total Likes, Avg Likes Per Post):\n"
-    # FIX: Using to_string() instead of to_markdown() to avoid tabulate dependency
     narrative_summary += theme_metrics.to_string(index=False, float_format="%.2f") + "\n\n"
+
     # 2. Overall Top Authors by Likes
     overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
         Post_Count=('POST_TEXT', 'size')
     ).nlargest(3, 'Total_Likes').reset_index()
     author_summary = "Overall Top 3 Influencers (by Total Likes):\n"
-    # FIX: Using to_string() instead of to_markdown() to avoid tabulate dependency
     author_summary += overall_top_authors.to_string(index=False) + "\n\n"
+
     # 3. Overall Time Context
-    # FIX: Check if DATETIME column has any valid dates before calling min/max/strftime
     valid_dates = df_classified['DATETIME'].dropna()
     if not valid_dates.empty:
         start_date = valid_dates.min().strftime('%Y-%m-%d')
@@ -269,6 +308,7 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
     else:
         start_date = "N/A (No valid dates found)"
         end_date = "N/A (No valid dates found)"
+
     total_posts = len(df_classified)
     total_likes_all = df_classified[ENGAGEMENT_COLUMN].sum()
     context_summary = (
@@ -277,7 +317,9 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
         f" Total Likes Across All Posts: {total_likes_all:,}\n"
         f" Timeframe: {start_date} to {end_date}\n"
     )
+
     return narrative_summary + author_summary + context_summary
+
 def generate_takeaways(summary_data, api_key):
     """Calls Grok to generate 5 key data-driven takeaways (Step 3)"""
     system_prompt = (
@@ -310,23 +352,23 @@ def generate_takeaways(summary_data, api_key):
             st.error("Failed to parse JSON response for takeaways.")
             return None
     return None
+
 # --- Custom Visualization Functions ---
 def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_col, top_n=5):
     """
     Generates a Plotly horizontal stacked bar chart showing total likes per theme,
-with stacked segments for the top N authors + 'Other'.
-"""
+    with stacked segments for the top N authors + 'Other'.
+    """
     # 1. Aggregate total likes per theme (required for percentage calculation)
     theme_total_likes = df_classified.groupby(theme_col)[engagement_col].sum().rename('Theme_Total')
+
     # 2. Aggregate likes by Theme and Author
     df_grouped = df_classified.groupby([theme_col, author_col])[engagement_col].sum().reset_index(name='Author_Likes')
+
     # 3. Identify Top N Authors for EACH theme and group the rest into 'Other'
     def get_top_n_authors(group):
-        # Sort authors by likes within the theme
         top_authors = group.nlargest(top_n, 'Author_Likes')
-        # Calculate 'Other' likes
         other_likes = group['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
-        # Create 'Other' row if applicable
         if other_likes > 0 and group['Author_Likes'].sum() > 0:
             other_row = pd.DataFrame({
                 theme_col: [group.name],
@@ -335,19 +377,21 @@ with stacked segments for the top N authors + 'Other'.
             })
             return pd.concat([top_authors, other_row], ignore_index=True)
         return top_authors
+
     df_top_authors = df_grouped.groupby(theme_col).apply(get_top_n_authors).reset_index(drop=True)
-    # Drop rows where 'Author_Likes' is 0, which can happen if a theme has 0 total likes
     df_top_authors = df_top_authors[df_top_authors['Author_Likes'] > 0].copy()
+
     # 4. Merge theme totals for calculating percentages (used in tooltips)
     df_top_authors = df_top_authors.merge(theme_total_likes, on=theme_col)
     df_top_authors['Percentage'] = (df_top_authors['Author_Likes'] / df_top_authors['Theme_Total']) * 100
+
     # 5. Create Plotly Stacked Bar Chart
     fig = px.bar(
         df_top_authors,
         x='Author_Likes',
         y=theme_col,
-        color=author_col, # Use author as the color dimension for segments
-        orientation='h', # Horizontal chart
+        color=author_col,
+        orientation='h',
         title=f'Total Likes per Theme with Top {top_n} Author Share',
         labels={
             'Author_Likes': 'Total Likes',
@@ -358,9 +402,9 @@ with stacked segments for the top N authors + 'Other'.
         category_orders={
             theme_col: df_top_authors.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()
         },
-        # Use a wide range of colors for distinct authors
         color_discrete_sequence=px.colors.qualitative.Alphabet
     )
+
     # 6. Customize Tooltips and Layout
     fig.update_traces(
         hovertemplate=(
@@ -371,16 +415,13 @@ with stacked segments for the top N authors + 'Other'.
         ),
         customdata=df_top_authors[[author_col, 'Percentage']].values
     )
-    # Use wrapping for theme labels (Y-axis)
-    TICK_WRAP_WIDTH = 15 # Shorter width for better fit on y-axis
-    # Function to wrap text for tick labels
+
+    # Wrap long theme labels for y-axis
+    TICK_WRAP_WIDTH = 15
     def wrap_labels(text):
         return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH))
-    wrapped_labels = {
-        theme: wrap_labels(theme)
-        for theme in df_top_authors[theme_col].unique()
-    }
-    # Apply wrapped labels and hide the Y-axis legend (since colors are for authors)
+    wrapped_labels = {theme: wrap_labels(theme) for theme in df_top_authors[theme_col].unique()}
+
     fig.update_layout(
         yaxis={
             'tickmode': 'array',
@@ -390,36 +431,38 @@ with stacked segments for the top N authors + 'Other'.
         },
         showlegend=True,
         legend_title_text="Top Influencers",
-        template='plotly_dark'
+        template='plotly_white'
     )
     return fig
+
 # --- New Overall Author Chart Function ---
 def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n=10):
     """
     Generates a Plotly horizontal bar chart showing top N authors by Total Likes,
     colored by their most frequent theme.
-"""
+    """
     # 1. Calculate Primary Theme for each author
-    # Find the most frequent theme for each author
     df_classified['Theme_Rank'] = df_classified.groupby([author_col, 'NARRATIVE_TAG'])['POST_TEXT'].transform('count')
     df_classified = df_classified.sort_values(by=['Theme_Rank'], ascending=False)
-    # Drop duplicates to keep only the row corresponding to the author's primary theme
     df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']]
     df_primary_theme = df_primary_theme.rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
+
     # 2. Calculate Overall Total Likes and Posts
     overall_metrics = df_classified.groupby(author_col).agg(
         Total_Likes=(engagement_col, 'sum'),
         Total_Posts=('POST_TEXT', 'size')
     ).reset_index()
+
     # 3. Merge primary theme and sort to get Top N
     overall_metrics = overall_metrics.merge(df_primary_theme, on=author_col, how='left')
     overall_metrics = overall_metrics.sort_values(by='Total_Likes', ascending=False).head(top_n)
+
     # 4. Create Plotly Horizontal Bar Chart
     fig = px.bar(
         overall_metrics,
         x='Total_Likes',
         y=author_col,
-        color='Primary_Theme', # Color by primary theme
+        color='Primary_Theme',
         orientation='h',
         title=f'Top {top_n} Influencers by Total Likes (Colored by Primary Theme)',
         labels={
@@ -429,11 +472,11 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
         },
         height=550,
         category_orders={
-            author_col: overall_metrics[author_col].tolist() # Ensure authors are sorted by likes (descending)
+            author_col: overall_metrics[author_col].tolist()
         },
-        color_discrete_sequence=px.colors.qualitative.Plotly # Use Plotly color scale for themes
+        color_discrete_sequence=px.colors.qualitative.Plotly
     )
-    # Customizing tooltips for readability
+
     fig.update_traces(
         hovertemplate=(
             f'<b>%{{y}}</b><br>'
@@ -443,25 +486,23 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
         ),
         customdata=overall_metrics[['Total_Posts', 'Primary_Theme']].values
     )
-    # Improve layout for readability
+
     fig.update_layout(
-        yaxis={'title': None, 'automargin': True}, # Remove y-axis title for cleaner look
-        xaxis={'tickformat': ',', 'title': 'Total Likes'}, # Format large numbers on x-axis
-        template='plotly_dark'
+        yaxis={'title': None, 'automargin': True},
+        xaxis={'tickformat': ',', 'title': 'Total Likes'},
+        template='plotly_white'
     )
     return fig
+
 def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n=5):
     """
     Generates a single horizontal stacked bar chart for one theme's top authors.
     """
-    # Filter to this theme only
     df_theme = df_viz[df_viz['NARRATIVE_TAG'] == theme].copy()
     if df_theme.empty:
         return None
-    
-    # Aggregate likes by Author for this theme
+
     df_grouped = df_theme.groupby(author_col)[engagement_col].sum().reset_index(name='Author_Likes')
-    # Get top N authors + 'Other'
     top_authors = df_grouped.nlargest(top_n, 'Author_Likes')
     other_likes = df_grouped['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
     if other_likes > 0:
@@ -469,12 +510,10 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
         df_top = pd.concat([top_authors, other_row], ignore_index=True)
     else:
         df_top = top_authors
-    
-    # Total for theme (for percentages)
+
     theme_total = df_theme[engagement_col].sum()
     df_top['Percentage'] = (df_top['Author_Likes'] / theme_total) * 100
-    
-    # Create stacked bar (horizontal, single bar for the theme)
+
     fig = px.bar(
         df_top,
         x='Author_Likes',
@@ -484,19 +523,20 @@ def plot_theme_influencer_share(df_viz, theme, author_col, engagement_col, top_n
         labels={'Author_Likes': 'Likes', author_col: 'Influencer'},
         height=400,
         color=author_col,
-        color_discrete_sequence=px.colors.qualitative.Set3  # Compact palette
+        color_discrete_sequence=px.colors.qualitative.Set3
     )
     fig.update_traces(
         hovertemplate=f'<b>%{{y}}</b><br>Likes: %{{x:,}}<br>Share: %{{customdata[0]:.1f}}%<extra></extra>',
         customdata=df_top[['Percentage']]
     )
     fig.update_layout(
-        showlegend=False,  # No legend needed for single-theme bars
+        showlegend=False,
         yaxis_title=None,
         xaxis_title='Total Likes',
-        template='plotly_dark'
+        template='plotly_white'
     )
     return fig
+
 # --- Streamlit UI and Workflow ---
 # Initialize Session State
 if 'df_full' not in st.session_state:
@@ -507,31 +547,33 @@ if 'classified_df' not in st.session_state:
     st.session_state.classified_df = None
 if 'data_summary_text' not in st.session_state:
     st.session_state.data_summary_text = None
+
 # FIX: Check for API key securely outside of the sidebar
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
+
 # --- Application Title (FIX: Restored the main title here) ---
 st.title("Grok-Powered Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
+
 # --- SIDEBAR (Configuration and Upload) ---
 with st.sidebar:
     # --- API Key Check (Discreet) ---
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
-    # FIX: Removed the successful API key notification to reduce clutter
-    # --- File Upload (NEW POSITION) ---
+
+    # --- File Upload ---
     st.markdown("#### File Upload")
     uploaded_file = st.file_uploader(
         "Upload Meltwater Data (.xlsx)",
         type=['xlsx'],
-        # FIX: The text inside the uploader is now white via CSS, but we use markdown here for the header
         help="Upload your Meltwater file in Excel format (.xlsx)."
     )
-    # --- Download Button (FIX: Moved to sidebar and renamed) ---
+
+    # --- Download Button ---
     if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
         st.markdown("---")
         st.markdown("#### Download Tagged Data")
-        # Using CSV export for wider compatibility, regardless of the input format
         csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Tagged Data (CSV)",
@@ -540,63 +582,64 @@ with st.sidebar:
             mime='text/csv',
             type="primary"
         )
+
 # --- STOP APP IF NO KEY OR NO FILE ---
 if not st.session_state.api_key or uploaded_file is None:
     if uploaded_file is None:
         st.info("Upload your Meltwater Data (.xlsx) in the sidebar to begin the analysis.")
     st.stop()
+
 # --- Main App Logic (Container for upload feedback) ---
 with st.container():
     if st.session_state.df_full is None:
         try:
             uploaded_file.seek(0)
             st.info("Reading Excel file (.xlsx)...")
-            # --- Excel Reading (Standard and reliable for fixed structure) ---
+
+            # --- Excel Reading ---
             df = pd.read_excel(
                 uploaded_file,
                 skiprows=HEADER_ROWS_TO_SKIP,
                 engine='openpyxl'
             )
+
             # --- Final Validation and Preprocessing ---
-            # Clean column names globally
             df.columns = df.columns.str.strip()
-            # Check for essential columns after reading
             required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
             if not all(col in df.columns for col in required_cols):
                 missing_cols = [col for col in required_cols if col not in df.columns]
-                # Providing the exact names the code is looking for to aid debugging
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
-            # --- Date Parsing (FIXED: Parse Date column directly—no concatenation needed) ---
-            # Date column already has full datetime (e.g., "23-Sep-2025 09:22AM")
-            df[DATE_COLUMN] = df[DATE_COLUMN].astype(str).str.strip()  # Clean whitespace
+
+            # --- Date Parsing (parse full datetime in Date column) ---
+            df[DATE_COLUMN] = df[DATE_COLUMN].astype(str).str.strip()
             df['DATETIME'] = pd.to_datetime(
                 df[DATE_COLUMN],
-                format='%d-%b-%Y %I:%M%p',  # Matches exactly: DD-MMM-YYYY [space] HH:MMAM/PM
-                errors='coerce'  # NaT for any failures
+                format=DATE_TIME_FORMAT,
+                errors='coerce'
             )
 
-            # Quick validation (add this for debugging—remove in production if desired)
             parse_success_rate = (df['DATETIME'].notna()).mean() * 100
             if parse_success_rate < 90:
                 st.warning(f"Date parsing succeeded for only {parse_success_rate:.1f}% of rows. Check sample data for anomalies.")
             else:
                 st.success(f"Date parsing complete: {parse_success_rate:.1f}% success rate ({df['DATETIME'].notna().sum():,} valid datetimes).")
 
-            # Optional: If you still need Time column (e.g., for display), keep it separate
-            # But don't use it for parsing
-            # --- End Date Parsing ---
-            # Create a combined text column
+            # Combined text column
             df['POST_TEXT'] = df.apply(
                 lambda row: ' | '.join(str(row[col]) for col in TEXT_COLUMNS if col in df.columns),
                 axis=1
             )
-            # Convert Likes to numeric, handling errors
+
+            # Likes numeric
             df[ENGAGEMENT_COLUMN] = pd.to_numeric(df[ENGAGEMENT_COLUMN], errors='coerce').fillna(0).astype(int)
-            # Remove rows where all text columns were NaN or empty strings (no post content)
+
+            # Remove rows where all text columns were NaN or empty strings
             df = df[df['POST_TEXT'].str.strip().str.lower() != 'nan | nan | nan']
+
             st.session_state.df_full = df.copy()
             st.success("File uploaded successfully!")
-            # --- DATA SUMMARY RELOCATED HERE (FIX) ---
+
+            # --- DATA SUMMARY ---
             data_rows = df.shape[0]
             valid_dates = df['DATETIME'].dropna()
             date_min = valid_dates.min().strftime('%Y-%m-%d') if not valid_dates.empty else "N/A"
@@ -605,25 +648,26 @@ with st.container():
             st.markdown(f"""
             - **Total Rows Processed:** {data_rows:,}
             - **Date Span:** {date_min} to {date_max}
-""")
+            """)
             st.markdown("---")
-            # --- END DATA SUMMARY RELOCATED ---
+
             # Clear previous results when a new file is uploaded
             st.session_state.narrative_data = None
             st.session_state.classified_df = None
             st.session_state.data_summary_text = None
             st.rerun()
+
         except Exception as e:
             st.error(f"Error processing file: {e}")
             st.session_state.df_full = None
             st.stop()
+
     # Execution steps follow only if df_full is loaded
     if st.session_state.df_full is not None:
         # --- Narratives Extraction (Step 1) ---
         st.header("Narratives Extraction")
         if not st.session_state.narrative_data:
             if st.button(f"Click here to start narrative extraction using {GROK_MODEL}", type="primary"):
-                # Take a sample of 100 posts for narrative generation
                 df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
                 corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
                 narrative_list = analyze_narratives(corpus, st.session_state.api_key)
@@ -633,17 +677,18 @@ with st.container():
                     st.rerun()
             else:
                 st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
+
         if st.session_state.narrative_data:
             st.subheader("Identified Narrative Themes")
-            # FIX: Display themes as structured markdown list
             for i, narrative in enumerate(st.session_state.narrative_data):
                 st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
             st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
             st.success("Grok identified narrative themes from a sample set of 100 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics. (Python can handle much more volume than the LLMs.)")
+
         # --- Data Analysis by Narrative (Step 2) ---
         st.markdown("---")
         st.header("Data Analysis by Narrative")
-        # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
+
         if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
             if st.button(f"Click here to classify {len(st.session_state.df_full):,} posts by narrative", type="primary"):
                 df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
@@ -651,18 +696,21 @@ with st.container():
                     st.session_state.classified_df = df_classified
                     st.success("Hybrid classification complete. Dashboard generated.")
                     st.rerun()
+
         if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
             df_classified = st.session_state.classified_df
-            # Filter out the "Other/Unrelated" category for visualization, but keep in metrics
-            # We must ensure we filter only on rows with valid dates for trend analysis
+
+            # Filter for visualization (exclude Other/Unrelated and require valid dates)
             df_viz = df_classified[
                 (df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT) &
                 (df_classified['DATETIME'].notna())
             ].copy()
+
             if df_viz.empty:
                 st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
             else:
                 st.subheader("Narrative Analysis Dashboard")
+
                 # 1. Bar Chart: Volume only
                 st.markdown("### Post Volume by Theme")
                 theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(
@@ -676,10 +724,10 @@ with st.container():
                     title='Post Volume by Theme',
                     labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
                     height=500,
-                    color='NARRATIVE_TAG', # FIX: Color code each theme (required for distinct colors)
-                    color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors
+                    color='NARRATIVE_TAG',
+                    color_discrete_sequence=px.colors.qualitative.Plotly
                 )
-                # FIX: Ensure labels are wrapped and centered below the bar
+
                 TICK_WRAP_WIDTH_BAR = 15
                 def wrap_labels_bar(text):
                     return '<br>'.join(textwrap.wrap(text, TICK_WRAP_WIDTH_BAR))
@@ -689,23 +737,22 @@ with st.container():
                         'tickangle': 0,
                         'automargin': True,
                         'tickfont': {'size': 12},
-                        # Apply wrapping function to tick labels
                         'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
                         'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
                     },
-                    showlegend=False, # Hide legend as colors are mapped to theme names on the axis
-                    template='plotly_dark'
+                    showlegend=False,
+                    template='plotly_white'
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
+
                 # 2. Line Graph: Trend Over Time (Volume)
                 st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
-                # Group data by Date and Theme, aggregating volume
                 df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
                 df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
-                # Calculate Rolling Averages for EACH theme separately
                 df_trends_theme['Volume_Roll_Avg'] = df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume'].transform(
                     lambda x: x.rolling(window=7, min_periods=1).mean()
                 )
+
                 if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
                     fig_line = px.line(
                         df_trends_theme,
@@ -727,17 +774,19 @@ with st.container():
                             xanchor="center",
                             x=0.5
                         ),
-                        template='plotly_dark'
+                        template='plotly_white'
                     )
                     st.plotly_chart(fig_line, use_container_width=True)
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
+
                 # 3. Stacked Bar Charts: Influencer Share per Theme (Separate charts)
                 st.markdown("### Influencer Share of Engagement")
                 for theme in df_viz['NARRATIVE_TAG'].unique():
                     fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                     if fig_theme:
                         st.plotly_chart(fig_theme, use_container_width=True)
+
                 # 4. Overall Top Authors by Likes
                 st.markdown("### Top 10 Overall Authors by Total Likes")
                 st.plotly_chart(
@@ -749,7 +798,8 @@ with st.container():
                     ),
                     use_container_width=True
                 )
-                # --- Insights from the Data (Step 3) - MOVED INSIDE AFTER CHARTS ---
+
+                # --- Insights from the Data (Step 3) ---
                 st.markdown("---")
                 st.header("Insights from the Data")
                 if st.button(f"Click here to generate 5 key takeaways from the data", type="primary"):
