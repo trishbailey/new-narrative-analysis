@@ -675,37 +675,35 @@ with st.container():
                 fig_bar = finalize_figure(
                     fig_bar,
                     title="Post volume by narrative theme",
+                    subtitle="Sorted by total posts",
                     height=500
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
                 # 2) Narrative Volume Trend Over Time (Line)
-                st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
+                st.markdown("### Narrative Volume Trend Over Time")
                 df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
                 df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
-                df_trends_theme['Volume_Roll_Avg'] = df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume'].transform(
-                    lambda x: x.rolling(window=7, min_periods=1).mean()
-                )
                 if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
                     fig_line = px.line(
                         df_trends_theme,
                         x='DATETIME',
-                        y='Volume_Roll_Avg',
+                        y='Post_Volume',
                         color='NARRATIVE_TAG',
-                        title='Volume Trend by Narrative Theme (7-Day Rolling Average)',
-                        labels={'Volume_Roll_Avg': 'Rolling Avg. Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
+                        title='Volume Trend by Narrative Theme',
+                        labels={'Post_Volume': 'Daily Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
                         height=550,
                         color_discrete_sequence=VIBRANT_QUAL
                     )
                     fig_line.update_traces(mode="lines", line={"width": 3})
                     fig_line.update_layout(
                         xaxis_title="Date",
-                        yaxis_title="7-day rolling avg. posts",
+                        yaxis_title="Daily posts",
                         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
                     )
                     fig_line = finalize_figure(
                         fig_line,
                         title="Narrative volume over time",
-                        subtitle="7-day rolling average, by theme",
+                        subtitle="Daily volume, by theme",
                         height=520
                     )
                     st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
