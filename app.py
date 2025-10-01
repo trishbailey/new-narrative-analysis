@@ -8,6 +8,7 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import concurrent.futures
 import threading
+import textwrap 
 
 # ML Imports for Hybrid Classification
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -41,7 +42,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 st.title("Grok-Powered Narrative Analyzer")
-st.markdown("Upload your Meltwater data to perform a 3-step thematic and quantitative analysis using Grok AI and hybrid ML.")
+# Removed initial prompt line: Upload your Meltwater data to perform a 3-step analysis.
 
 
 # --- Utility Functions ---
@@ -321,6 +322,160 @@ def generate_takeaways(summary_data, api_key):
             return None
     return None
 
+# --- Custom Visualization Function ---
+
+def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_col, top_n=5):
+    """
+    Generates a Plotly horizontal stacked bar chart showing total likes per theme,
+    with stacked segments for the top N authors + 'Other'.
+    """
+    
+    # 1. Aggregate total likes per theme (required for percentage calculation)
+    theme_total_likes = df_classified.groupby(theme_col)[engagement_col].sum().rename('Theme_Total')
+
+    # 2. Aggregate likes by Theme and Author
+    df_grouped = df_classified.groupby([theme_col, author_col])[engagement_col].sum().reset_index(name='Author_Likes')
+    
+    # 3. Identify Top N Authors for EACH theme and group the rest into 'Other'
+    def get_top_n_authors(group):
+        # Sort authors by likes within the theme
+        top_authors = group.nlargest(top_n, 'Author_Likes')
+        
+        # Calculate 'Other' likes
+        other_likes = group['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
+        
+        # Create 'Other' row if applicable
+        if other_likes > 0:
+            other_row = pd.DataFrame({
+                theme_col: [group.name], 
+                author_col: ['Other/Long Tail'], 
+                'Author_Likes': [other_likes]
+            })
+            return pd.concat([top_authors, other_row], ignore_index=True)
+        return top_authors
+
+    df_top_authors = df_grouped.groupby(theme_col).apply(get_top_n_authors).reset_index(drop=True)
+    
+    # 4. Merge theme totals for calculating percentages (used in tooltips)
+    df_top_authors = df_top_authors.merge(theme_total_likes, on=theme_col)
+    df_top_authors['Percentage'] = (df_top_authors['Author_Likes'] / df_top_authors['Theme_Total']) * 100
+    
+    # 5. Create Plotly Stacked Bar Chart
+    fig = px.bar(
+        df_top_authors,
+        x='Author_Likes',
+        y=theme_col,
+        color=author_col, # Use author as the color dimension for segments
+        orientation='h', # Horizontal chart
+        title=f'Total Likes per Theme with Top {top_n} Author Share',
+        labels={
+            'Author_Likes': 'Total Likes',
+            theme_col: 'Narrative Theme',
+            author_col: 'Influencer Share'
+        },
+        height=550,
+        category_orders={
+            theme_col: df_top_authors.groupby(theme_col)['Author_Likes'].sum().sort_values(ascending=True).index.tolist()
+        },
+        color_discrete_sequence=px.colors.qualitative.Alphabet # Highly distinct color scale for authors
+    )
+
+    # 6. Customize Tooltips and Layout
+    fig.update_traces(
+        hovertemplate=(
+            f'<b>%{{y}}</b><br>'
+            f'Author: %{{customdata[0]}}<br>'
+            f'Likes: %{{x:,}}<br>'
+            f'Share: %{{customdata[1]:.2f}}%<extra></extra>'
+        ),
+        customdata=df_top_authors[[author_col, 'Percentage']].values
+    )
+    
+    # Use wrapping for theme labels (Y-axis)
+    TICK_WRAP_WIDTH = 25
+    wrapped_labels = {
+        theme: textwrap.fill(theme, TICK_WRAP_WIDTH).replace('\n', '<br>')
+        for theme in df_top_authors[theme_col].unique()
+    }
+    
+    # Apply wrapped labels and hide the Y-axis legend (since colors are for authors)
+    fig.update_layout(
+        yaxis={
+            'tickmode': 'array',
+            'tickvals': list(wrapped_labels.keys()),
+            'ticktext': list(wrapped_labels.values()),
+            'automargin': True
+        },
+        showlegend=True,
+        legend_title_text="Top Influencers"
+    )
+
+    return fig
+
+# --- New Overall Author Chart Function ---
+def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n=10):
+    """
+    Generates a Plotly horizontal bar chart showing top N authors by Total Likes,
+    colored by their most frequent theme.
+    """
+    
+    # 1. Calculate Primary Theme for each author
+    # Find the most frequent theme for each author
+    df_classified['Theme_Rank'] = df_classified.groupby([author_col, 'NARRATIVE_TAG'])['POST_TEXT'].transform('count')
+    df_classified = df_classified.sort_values(by=['Theme_Rank'], ascending=False)
+    
+    # Drop duplicates to keep only the row corresponding to the author's primary theme
+    df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']]
+    df_primary_theme = df_primary_theme.rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
+    
+    # 2. Calculate Overall Total Likes and Posts
+    overall_metrics = df_classified.groupby(author_col).agg(
+        Total_Likes=(engagement_col, 'sum'),
+        Total_Posts=('POST_TEXT', 'size')
+    ).reset_index()
+    
+    # 3. Merge primary theme and sort to get Top N
+    overall_metrics = overall_metrics.merge(df_primary_theme, on=author_col, how='left')
+    overall_metrics = overall_metrics.sort_values(by='Total_Likes', ascending=False).head(top_n)
+    
+    # 4. Create Plotly Horizontal Bar Chart
+    fig = px.bar(
+        overall_metrics,
+        x='Total_Likes',
+        y=author_col,
+        color='Primary_Theme', # Color by primary theme
+        orientation='h',
+        title=f'Top {top_n} Influencers by Total Likes (Colored by Primary Theme)',
+        labels={
+            'Total_Likes': 'Total Likes (Engagement)',
+            author_col: 'Author/Influencer',
+            'Primary_Theme': 'Primary Narrative Theme'
+        },
+        height=550,
+        category_orders={
+            author_col: overall_metrics[author_col].tolist() # Ensure authors are sorted by likes (descending)
+        },
+        color_discrete_sequence=px.colors.qualitative.Plotly # Use Plotly color scale for themes
+    )
+    
+    # Customizing tooltips for readability
+    fig.update_traces(
+        hovertemplate=(
+            f'<b>%{{y}}</b><br>'
+            f'Likes: %{{x:,}}<br>'
+            f'Posts: %{{customdata[0]}}<br>'
+            f'Primary Theme: %{{customdata[1]}}<extra></extra>'
+        ),
+        customdata=overall_metrics[['Total_Posts', 'Primary_Theme']].values
+    )
+    
+    # Improve layout for readability
+    fig.update_layout(
+        yaxis={'title': None, 'automargin': True}, # Remove y-axis title for cleaner look
+        xaxis={'tickformat': ','} # Format large numbers on x-axis
+    )
+
+    return fig
 
 # --- Streamlit UI and Workflow ---
 
@@ -359,7 +514,10 @@ if not st.session_state.api_key:
 
 # Container for upload feedback
 with st.container(border=True):
-    st.info("Upload your Meltwater data to begin the 3-step analysis.")
+    # FIX: Removed the prompt line here and streamlined the information display
+    st.markdown(
+        "Upload your Meltwater data to perform a 3-step thematic and quantitative analysis using Grok AI and hybrid ML."
+    )
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
@@ -437,7 +595,7 @@ with st.container(border=True):
             # --- END Safe Date Calculation ---
 
 
-            st.success("File uploaded successfully!")
+            st.success("File uploaded successfully! ")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
@@ -533,129 +691,98 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
     if df_viz.empty:
         st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard will be empty.")
     else:
-        # 1. Bar Chart: Volume and Engagement
-        st.markdown("### 1. Post Volume vs. Normalized Likes per Theme")
+        # 1. Bar Chart: Volume only
+        st.markdown("### 1. Post Volume by Theme")
 
         theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(
             Post_Volume=('POST_TEXT', 'size'),
-            Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
         ).reset_index()
 
-        # Normalization for dual-metric comparison on a single axis
-        max_volume = theme_metrics['Post_Volume'].max()
-        max_likes = theme_metrics['Total_Likes'].max()
-        scale_factor = max_volume / max_likes if max_likes > 0 else 1
-        theme_metrics['Normalized_Likes'] = theme_metrics['Total_Likes'] * scale_factor
         theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
         
         fig_bar = px.bar(
             theme_metrics, 
             x='NARRATIVE_TAG', 
-            y=['Post_Volume', 'Normalized_Likes'], 
-            title='Post Volume vs. Engagement (Normalized Likes)',
-            labels={'value': 'Count / Normalized Likes', 'NARRATIVE_TAG': 'Narrative Theme'},
+            y='Post_Volume', 
+            title='Post Volume by Theme',
+            labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
             height=500,
+            color='NARRATIVE_TAG', # FIX: Color code each theme (required for distinct colors)
             color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors
         )
         
-        # FIX: Label Wrapping for the X-axis
+        # FIX: Smooth Label Wrapping for the X-axis (using Plotly's methods for cleaner look)
         fig_bar.update_layout(
             xaxis={
                 'categoryorder':'total descending',
-                'tickangle': 0, # Keep labels horizontal
-                'tickmode': 'array',
-                # This wraps the labels based on the width of the chart
-                'tickvals': theme_metrics['NARRATIVE_TAG'],
-                'ticktext': [f"<br>".join(t.split()) for t in theme_metrics['NARRATIVE_TAG']], # Insert <br> to force wrap
+                'tickangle': 0, 
+                'automargin': True,
+                'tickfont': {'size': 12},
+                # Use Plotly's word wrapping helper by setting a small width
+                'tickformat': ',\n' 
             }, 
-            legend_title_text='Metric'
+            showlegend=False # Hide legend as colors are mapped to theme names on the axis
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
         # 2. Line Graph: Trend Over Time (Volume)
-        st.markdown("### 2. Volume and Likes Trend Over Time (7-Day Rolling Average)")
+        st.markdown("### 2. Narrative Volume Trend Over Time (7-Day Rolling Average)")
 
-        # Group data by day and aggregate volume/likes
-        df_trends = df_viz.set_index('DATETIME').resample('D').agg(
-            Post_Volume=('POST_TEXT', 'size'),
-            Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
-        ).reset_index()
+        # Group data by Date and Theme, aggregating volume
+        df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
+        df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
+
+        # Calculate Rolling Averages for EACH theme separately
+        df_trends_theme['Volume_Roll_Avg'] = df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume'].transform(
+            lambda x: x.rolling(window=7, min_periods=1).mean()
+        )
         
-        if not df_trends.empty and len(df_trends['DATETIME'].dt.date.unique()) > 1: # Require data across multiple days
-            # Calculate Rolling Averages
-            df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7, min_periods=1).mean() # Added min_periods=1
-            df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7, min_periods=1).mean() # Added min_periods=1
+        if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1: # Require data across multiple days
 
-            # Normalize Likes for visualization
-            max_volume_roll = df_trends['Volume_Roll_Avg'].max()
-            df_trends['Normalized_Likes_Roll_Avg'] = (df_trends['Likes_Roll_Avg'] / df_trends['Likes_Roll_Avg'].max()) * max_volume_roll
-            
-            # Melt data for Plotly to use a single color dimension
-            df_melted = df_trends.melt(id_vars='DATETIME', 
-                                        value_vars=['Volume_Roll_Avg', 'Normalized_Likes_Roll_Avg'],
-                                        var_name='Metric', 
-                                        value_name='Value')
-
+            # FIX: Only track Post Volume, color-coded by Theme
             fig_line = px.line(
-                df_melted, 
+                df_trends_theme, 
                 x='DATETIME', 
-                y='Value', 
-                color='Metric',
-                title='Rolling 7-Day Average: Posts vs. Engagement',
-                labels={'Value': 'Count / Normalized Likes', 'DATETIME': 'Date'},
+                y='Volume_Roll_Avg', 
+                color='NARRATIVE_TAG',
+                title='7-Day Rolling Average: Posts by Theme',
+                labels={'Volume_Roll_Avg': 'Rolling Post Volume (Count)', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Narrative Theme'},
                 height=500,
-                color_discrete_sequence=['#4B0082', '#DC143C'] # Deep Purple for Volume, Crimson for Likes
+                color_discrete_sequence=px.colors.qualitative.Plotly # Distinct colors for themes
             )
             st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.warning("Trend analysis requires posts spread over multiple days with valid dates, which was not found.")
 
-        # 3, 4, 5. Author Leaderboards
-        st.markdown("### Author & Theme Leaderboards")
-        col1, col2 = st.columns(2)
-
-        # --- Top 10 Authors by Post Volume (Per Theme) ---
-        with col1:
-            st.markdown("#### Top 10 Authors by Post Volume (Per Theme)")
-            author_volume = df_viz.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN]).size().reset_index(name='Post_Count')
-            top_authors_vol = author_volume.sort_values(['NARRATIVE_TAG', 'Post_Count'], ascending=[True, False])
-
-            for theme in top_authors_vol['NARRATIVE_TAG'].unique():
-                st.markdown(f"**{theme}**")
-                theme_subset = top_authors_vol[top_authors_vol['NARRATIVE_TAG'] == theme].head(10) # Limited to Top 10
-                for index, row in theme_subset.iterrows():
-                    st.markdown(f"- {row[AUTHOR_COLUMN]}: {row['Post_Count']} posts")
-                st.markdown("---") 
-
-        # --- Top 10 Authors by Likes (Per Theme) ---
-        with col2:
-            st.markdown("#### Top 10 Authors by Likes (Per Theme)")
-            author_likes = df_viz.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN])[ENGAGEMENT_COLUMN].sum().reset_index(name='Total_Likes')
-            top_authors_likes = author_likes.sort_values(['NARRATIVE_TAG', 'Total_Likes'], ascending=[True, False])
-
-            for theme in top_authors_likes['NARRATIVE_TAG'].unique():
-                st.markdown(f"**{theme}**")
-                theme_subset = top_authors_likes[top_authors_likes['NARRATIVE_TAG'] == theme].head(10) # Limited to Top 10
-                for index, row in theme_subset.iterrows():
-                    # Format likes with comma separators for readability
-                    st.markdown(f"- {row[AUTHOR_COLUMN]}: {row['Total_Likes']:,} likes")
-                st.markdown("---") 
-
-
-        # 5. Overall Top 10 Posters by Likes with Theme Context
-        st.markdown("#### Top 10 Overall Authors by Total Likes")
+        # 3. New Horizontal Stacked Bar Chart: Author Share in Likes per Theme
+        st.markdown("### 3. Influencer Share of Total Likes by Theme")
         
-        overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
-            Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
-            Total_Posts=('POST_TEXT', 'size'),
-            Themes_Contributed=('NARRATIVE_TAG', lambda x: ', '.join(x.unique()))
-        ).sort_values(by='Total_Likes', ascending=False).head(10).reset_index() # Limited to Top 10
+        if not df_viz.empty:
+            fig_stacked = plot_stacked_author_share(
+                df_viz, 
+                author_col=AUTHOR_COLUMN, 
+                theme_col='NARRATIVE_TAG', 
+                engagement_col=ENGAGEMENT_COLUMN, 
+                top_n=5
+            )
+            st.plotly_chart(fig_stacked, use_container_width=True)
+        else:
+            st.info("Insufficient data to generate the Influencer Share chart.")
 
-        # Display overall top authors in a simple, non-sortable markdown table
-        st.markdown("| Rank | Author | Total Likes | Themes Contributed |")
-        st.markdown("| :--- | :--- | :--- | :--- |")
-        for i, row in overall_top_authors.iterrows():
-            st.markdown(f"| {i+1} | {row[AUTHOR_COLUMN]} | {row['Total_Likes']:,} | {row['Themes_Contributed']} |")
+        # 4. Overall Top 10 Posters (New Visual Chart)
+        st.markdown("### 4. Overall Top 10 Authors by Total Likes")
+        
+        # Plot the new visual chart
+        if not df_classified.empty:
+            fig_overall = plot_overall_author_ranking(
+                df_classified, 
+                author_col=AUTHOR_COLUMN, 
+                engagement_col=ENGAGEMENT_COLUMN, 
+                top_n=10
+            )
+            st.plotly_chart(fig_overall, use_container_width=True)
+        else:
+            st.info("Insufficient classified data to generate the Overall Top Authors chart.")
 
 
     # --- Step 3: Generate Key Takeaways ---
