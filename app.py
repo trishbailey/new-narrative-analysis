@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -327,7 +328,7 @@ with stacked segments for the top N authors + 'Other'.
         # Calculate 'Other' likes
         other_likes = group['Author_Likes'].sum() - top_authors['Author_Likes'].sum()
         # Create 'Other' row if applicable
-        if other_likes > 0 and group[engagement_col].sum() > 0:
+        if other_likes > 0 and group['Author_Likes'].sum() > 0:
             other_row = pd.DataFrame({
                 theme_col: [group.name],
                 author_col: ['Other/Long Tail'],
@@ -713,3 +714,4 @@ with st.container():
                 st.subheader("Executive Summary: 5 Key Takeaways")
                 for i, takeaway in enumerate(takeaways_list):
                     st.markdown(f"**{i+1}.** {takeaway}")
+```
