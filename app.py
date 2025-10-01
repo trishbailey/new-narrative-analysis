@@ -193,6 +193,47 @@ def generate_takeaways(summary_data, api_key):
             return None
     return None
 
+# --- Data Crunching and Summary Generation ---
+
+def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
+    """Performs required data aggregation and formats it into a text summary for Grok."""
+    
+    # 1. Theme Metrics (Volume, Likes, Average Likes)
+    theme_metrics = df_classified.groupby('NARRATIVE_TAG').agg(
+        Volume=('POST_TEXT', 'size'),
+        Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
+    ).reset_index()
+    theme_metrics['Avg_Likes_Per_Post'] = theme_metrics['Total_Likes'] / theme_metrics['Volume']
+    theme_metrics = theme_metrics.sort_values(by='Volume', ascending=False)
+    
+    narrative_summary = "Narrative Metrics (Volume, Total Likes, Avg Likes Per Post):\n"
+    narrative_summary += theme_metrics.to_string(index=False, float_format="%.2f") + "\n\n"
+    
+    # 2. Overall Top Authors by Likes
+    overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
+        Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
+        Post_Count=('POST_TEXT', 'size')
+    ).nlargest(3, 'Total_Likes').reset_index()
+    
+    author_summary = "Overall Top 3 Influencers (by Total Likes):\n"
+    author_summary += overall_top_authors.to_string(index=False) + "\n\n"
+
+    # 3. Overall Time Context
+    start_date = df_classified['DATETIME'].min().strftime('%Y-%m-%d')
+    end_date = df_classified['DATETIME'].max().strftime('%Y-%m-%d')
+    total_posts = len(df_classified)
+    total_likes_all = df_classified[ENGAGEMENT_COLUMN].sum()
+    
+    context_summary = (
+        f"Dataset Context:\n"
+        f"  Total Posts Analyzed: {total_posts:,}\n"
+        f"  Total Likes Across All Posts: {total_likes_all:,}\n"
+        f"  Timeframe: {start_date} to {end_date}\n"
+    )
+    
+    return narrative_summary + author_summary + context_summary
+
+
 # --- Streamlit UI and Workflow ---
 
 # Initialize Session State
@@ -238,9 +279,32 @@ with st.container(border=True):
     st.info("👈 Upload your Meltwater CSV file to begin the 3-step analysis.")
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
-            df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=';')
+            # --- Robust File Reading Logic (Attempting multiple delimiters) ---
+            uploaded_file.seek(0)
+            
+            # List of delimiters to try, along with the most likely encoding fix
+            delimiters = [',', ';', '\t', '|'] 
+            df = None
+            
+            for sep in delimiters:
+                try:
+                    df = pd.read_csv(uploaded_file, low_memory=False, encoding='unicode_escape', sep=sep, on_bad_lines='skip')
+                    
+                    # A quick check to see if the main columns exist (if not, try next delimiter)
+                    if all(col in df.columns for col in TEXT_COLUMNS):
+                        break # Found the correct delimiter
+                    
+                    # Rewind the file pointer to the start for the next attempt
+                    uploaded_file.seek(0) 
 
-            # Data Preprocessing/Cleaning
+                except pd.errors.ParserError:
+                    uploaded_file.seek(0) # Rewind for the next attempt
+                    continue
+            
+            if df is None:
+                 raise ValueError("Could not determine the correct CSV delimiter or file is corrupted.")
+            
+            # --- Data Preprocessing/Cleaning ---
             df.columns = df.columns.str.strip()
             
             # Combine Date and Time
@@ -262,7 +326,7 @@ with st.container(border=True):
             date_min = df['DATETIME'].min().strftime('%Y-%m-%d')
             date_max = df['DATETIME'].max().strftime('%Y-%m-%d')
 
-            st.success(f"File uploaded successfully! ")
+            st.success("File uploaded successfully! ")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
@@ -329,6 +393,9 @@ if st.session_state.narrative_data and not st.session_state.classified_df:
         
         # Classification loop
         for i, post_text in enumerate(df_to_classify['POST_TEXT']):
+            # Add a small sleep to prevent rapid-fire rate limit hits
+            time.sleep(0.05) 
+            
             tag = classify_post(post_text, theme_titles, st.session_state.api_key)
             classified_tags.append(tag)
             progress_bar.progress((i + 1) / len(df_to_classify))
@@ -342,24 +409,20 @@ if st.session_state.classified_df is not None:
     df_classified = st.session_state.classified_df
     st.subheader("Narrative Analysis Dashboard")
 
-    # --- 2A: Volume and Engagement Bar Chart ---
+    # 1. Bar Chart: Volume and Engagement
     st.markdown("### 1. Post Volume vs. Normalized Likes per Theme")
 
-    # Group data by narrative tag
     theme_metrics = df_classified.groupby('NARRATIVE_TAG').agg(
         Post_Volume=('POST_TEXT', 'size'),
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
     ).reset_index()
 
-    # Calculate normalized likes for visualization
     max_volume = theme_metrics['Post_Volume'].max()
-    theme_metrics['Normalized_Likes'] = (theme_metrics['Total_Likes'] / theme_metrics['Total_Likes'].max()) * max_volume
+    max_likes = theme_metrics['Total_Likes'].max()
+    scale_factor = max_volume / max_likes if max_likes > 0 else 1
+    theme_metrics['Normalized_Likes'] = theme_metrics['Total_Likes'] * scale_factor
     theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
     
-    st.session_state.data_summary_text = f"Total Posts Classified: {len(df_classified):,}\n"
-    st.session_state.data_summary_text += "Narrative Metrics (Post Volume | Total Likes):\n" + theme_metrics.to_string(index=False)
-    
-    # Use Plotly for professional, interactive bar chart
     fig_bar = px.bar(
         theme_metrics, 
         x='NARRATIVE_TAG', 
@@ -372,68 +435,59 @@ if st.session_state.classified_df is not None:
     fig_bar.update_layout(xaxis={'categoryorder':'total descending'}, legend_title_text='Metric')
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # --- 2B: Volume and Likes Trend Line Graph ---
+    # 2. Line Graph: Trend Over Time (Volume)
     st.markdown("### 2. Volume and Likes Trend Over Time (7-Day Rolling Average)")
 
-    # Prepare data for time series plot
     df_trends = df_classified.set_index('DATETIME').resample('D').agg(
         Post_Volume=('POST_TEXT', 'size'),
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
     ).reset_index()
     
-    # Calculate 7-day rolling average for smoothing
     df_trends['Volume_Roll_Avg'] = df_trends['Post_Volume'].rolling(window=7).mean()
     df_trends['Likes_Roll_Avg'] = df_trends['Total_Likes'].rolling(window=7).mean()
 
-    # Normalize Likes for combined plot
     max_volume_roll = df_trends['Volume_Roll_Avg'].max()
     df_trends['Normalized_Likes_Roll_Avg'] = (df_trends['Likes_Roll_Avg'] / df_trends['Likes_Roll_Avg'].max()) * max_volume_roll
     
+    # Melt data for Plotly to use a single color dimension
+    df_melted = df_trends.melt(id_vars='DATETIME', 
+                                value_vars=['Volume_Roll_Avg', 'Normalized_Likes_Roll_Avg'],
+                                var_name='Metric', 
+                                value_name='Value')
+
     fig_line = px.line(
-        df_trends, 
+        df_melted, 
         x='DATETIME', 
-        y=['Volume_Roll_Avg', 'Normalized_Likes_Roll_Avg'], 
+        y='Value', 
+        color='Metric',
         title='Rolling 7-Day Average: Posts vs. Engagement',
-        labels={'value': 'Volume / Normalized Likes', 'DATETIME': 'Date'},
+        labels={'Value': 'Count / Normalized Likes', 'DATETIME': 'Date'},
         height=500,
-        color_discrete_sequence=px.colors.qualitative.PlotlyExpress
+        color_discrete_sequence=['#4B0082', '#DC143C'] # Deep Purple for Volume, Crimson for Likes
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
 
     col1, col2 = st.columns(2)
 
-    # --- 2C: Top 5 Authors by Volume per Theme ---
+    # 3 & 4. Top Authors by Volume and Likes per Theme
     with col1:
         st.markdown("### 3. Top Authors by Post Volume (Per Theme)")
-        
-        # Group by Theme and Author, count posts
         author_volume = df_classified.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN]).size().reset_index(name='Post_Count')
-        
-        # Get top 5 per theme
-        top_authors_vol = author_volume.sort_values(['NARRATIVE_TAG', 'Post_Count'], ascending=[True, False])
-        top_authors_vol = top_authors_vol.groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
-        
+        top_authors_vol = author_volume.sort_values(['NARRATIVE_TAG', 'Post_Count'], ascending=[True, False]).groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
         st.dataframe(top_authors_vol, use_container_width=True, height=500, hide_index=True)
 
-    # --- 2D: Top 5 Authors by Likes per Theme ---
     with col2:
         st.markdown("### 4. Top Authors by Likes (Per Theme)")
-        
-        # Group by Theme and Author, sum likes
         author_likes = df_classified.groupby(['NARRATIVE_TAG', AUTHOR_COLUMN])[ENGAGEMENT_COLUMN].sum().reset_index(name='Total_Likes')
-        
-        # Get top 5 per theme
-        top_authors_likes = author_likes.sort_values(['NARRATIVE_TAG', 'Total_Likes'], ascending=[True, False])
-        top_authors_likes = top_authors_likes.groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
-
+        top_authors_likes = author_likes.sort_values(['NARRATIVE_TAG', 'Total_Likes'], ascending=[True, False]).groupby('NARRATIVE_TAG').head(5).reset_index(drop=True)
         st.dataframe(top_authors_likes, use_container_width=True, height=500, hide_index=True)
-        st.session_state.data_summary_text += "\n\nTop Authors by Likes:\n" + top_authors_likes.head(5).to_string(index=False)
 
-    # --- 2E: Overall Influencer Summary ---
+
+    # 5. Overall Top 5 Posters by Likes with Theme Context
+    st.markdown("---")
     st.markdown("### 5. Top 5 Overall Authors by Total Likes")
     
-    # Overall top 5 authors by likes
     overall_top_authors = df_classified.groupby(AUTHOR_COLUMN).agg(
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum'),
         Total_Posts=('POST_TEXT', 'size'),
@@ -441,30 +495,22 @@ if st.session_state.classified_df is not None:
     ).sort_values(by='Total_Likes', ascending=False).head(5).reset_index()
 
     st.dataframe(overall_top_authors, use_container_width=True, hide_index=True)
-    st.session_state.data_summary_text += "\n\nOverall Top Authors by Likes:\n" + overall_top_authors.to_string(index=False)
 
 
-# --- Step 3: Generate Key Takeaways ---
-st.header("Step 3: Generate Key Takeaways (Synthesis)")
+    # --- Step 3: Generate Key Takeaways ---
+    st.header("Step 3: Generate Key Takeaways (Synthesis)")
+    
+    data_summary_text = perform_data_crunching_and_summary(df_classified)
 
-if st.session_state.data_summary_text:
     if st.button(f"Generate 5 Key Takeaways using {GROK_MODEL}"):
-        if not st.session_state.api_key:
-            st.error("Please enter your XAI/Grok API Key in the sidebar.")
-            st.stop()
-            
-        takeaways_list = generate_takeaways(st.session_state.data_summary_text, st.session_state.api_key)
+        takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
         
         if takeaways_list:
             st.subheader("Executive Summary: 5 Key Takeaways")
             for i, takeaway in enumerate(takeaways_list):
                 st.markdown(f"**{i+1}.** {takeaway}")
             
-    st.info("The synthesis step uses the data from the dashboard above to provide strategic, high-level conclusions.")
-
-
-# --- Data Download ---
-if st.session_state.classified_df is not None:
+    # --- Data Download ---
     st.markdown("---")
     st.markdown("### Download Classified Data")
     csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
