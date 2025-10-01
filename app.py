@@ -25,10 +25,11 @@ AI_SEED_SAMPLE_SIZE = 50 # Fixed sample size for Step 2 (ML Training)
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
 HEADER_ROWS_TO_SKIP = 1 # FIXED: Skip the first row (index 0) where the title/metadata typically resides.
 
-# --- Meltwater Data Column Mapping (Case-sensitive based on user data) ---
+# --- Meltwater Data Column Mapping (CORRECTED AUTHOR COLUMN) ---
 TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
 ENGAGEMENT_COLUMN = 'Likes'
-AUTHOR_COLUMN = 'Screen Name'
+# FINAL CORRECTED COLUMN NAME: Using 'Influencer' based on file content.
+AUTHOR_COLUMN = 'Influencer' 
 DATE_COLUMN = 'Date'
 TIME_COLUMN = 'Time'
 
@@ -366,10 +367,11 @@ with st.container(border=True):
             st.info("Reading Excel file (.xlsx)...")
             
             # --- Excel Reading (Standard and reliable for fixed structure) ---
+            # Using skiprows=1 because user confirmed columns start on the second row (index 1).
             df = pd.read_excel(
                 uploaded_file,
-                skiprows=HEADER_ROWS_TO_SKIP, # Skips the row of metadata (index 0)
-                engine='openpyxl' # Use openpyxl engine
+                skiprows=HEADER_ROWS_TO_SKIP, 
+                engine='openpyxl'
             )
             
             # --- Final Validation and Preprocessing ---
@@ -381,7 +383,8 @@ with st.container(border=True):
             required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
             if not all(col in df.columns for col in required_cols):
                 missing_cols = [col for col in required_cols if col not in df.columns]
-                raise ValueError(f"File is missing essential columns: {', '.join(missing_cols)}")
+                # Providing the exact names the code is looking for to aid debugging
+                raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
             # Combine Date and Time
             df['DATETIME'] = pd.to_datetime(df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), errors='coerce', dayfirst=True)
@@ -402,7 +405,7 @@ with st.container(border=True):
             date_min = df['DATETIME'].min().strftime('%Y-%m-%d')
             date_max = df['DATETIME'].max().strftime('%Y-%m-%d')
 
-            st.success("File uploaded successfully! ")
+            st.success("File uploaded successfully!")
             st.markdown(f"""
             - Data rows: **{data_rows:,}**
             - Date range: **{date_min}** to **{date_max}**
@@ -588,9 +591,10 @@ if st.session_state.classified_df is not None:
     # --- Data Download ---
     st.markdown("---")
     st.markdown("### Download Classified Data")
+    # Using CSV export for wider compatibility, regardless of the input format
     csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Download Classified CSV",
+        label="Download Classified Data (CSV)",
         data=csv,
         file_name='meltwater_narrative_analysis.csv',
         mime='text/csv',
