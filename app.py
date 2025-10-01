@@ -428,39 +428,45 @@ if st.session_state.df_full is None:
 st.markdown("---")
 st.header("Step 1: Generate Themes (Qualitative)")
 
-if not st.session_state.narrative_data:
-    if st.button(f"Start Theme Generation using {GROK_MODEL}"):
-        if not st.session_state.api_key:
-            st.error("Please enter your XAI/Grok API Key in the sidebar.")
-            st.stop()
+# FIX: Check if st.session_state.classified_df is None before checking its empty state.
+if st.session_state.narrative_data is not None and st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
+    pass # Themes and classification are complete, move on.
+else:
+    # Logic for starting Step 1
+    if not st.session_state.narrative_data:
+        if st.button(f"Start Theme Generation using {GROK_MODEL}"):
+            if not st.session_state.api_key:
+                st.error("Please enter your XAI/Grok API Key in the sidebar.")
+                st.stop()
+            
+            # Take a sample of 100 posts for narrative generation
+            df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
+            corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
+            
+            narrative_list = analyze_narratives(corpus, st.session_state.api_key)
+            
+            if narrative_list:
+                st.session_state.narrative_data = narrative_list
+                st.success("Narratives successfully generated.")
+                st.rerun()
+        else:
+            st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
+            
+    if st.session_state.narrative_data:
+        st.subheader("Generated Narrative Themes")
+        st.dataframe(pd.DataFrame(st.session_state.narrative_data), use_container_width=True)
         
-        # Take a sample of 100 posts for narrative generation
-        df_sample = st.session_state.df_full.sample(min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full)), random_state=42)
-        corpus = ' | '.join(df_sample['POST_TEXT'].tolist())
-        
-        narrative_list = analyze_narratives(corpus, st.session_state.api_key)
-        
-        if narrative_list:
-            st.session_state.narrative_data = narrative_list
-            st.success("Narratives successfully generated.")
-            st.rerun()
-    else:
-        st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
-        
-if st.session_state.narrative_data:
-    st.subheader("Generated Narrative Themes")
-    st.dataframe(pd.DataFrame(st.session_state.narrative_data), use_container_width=True)
-    
-    # Store list of titles for Step 2
-    st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
-    st.success("Themes are ready for the hybrid classification step.")
+        # Store list of titles for Step 2
+        st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
+        st.success("Themes are ready for the hybrid classification step.")
 
 
 # --- Step 2: Classify & Dashboard (Quantitative) ---
 st.markdown("---")
 st.header("Step 2: Hybrid Classification & Dashboard")
 
-if st.session_state.narrative_data and not st.session_state.classified_df:
+# FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
+if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
     if st.button(f"Classify {len(st.session_state.df_full):,} Posts (AI Seed: {AI_SEED_SAMPLE_SIZE} | ML: Remaining)"):
         if not st.session_state.api_key:
             st.error("Please enter your XAI/Grok API Key in the sidebar.")
@@ -473,7 +479,7 @@ if st.session_state.narrative_data and not st.session_state.classified_df:
             st.success("Hybrid classification complete. Dashboard generated.")
             st.rerun()
 
-if st.session_state.classified_df is not None:
+if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
     df_classified = st.session_state.classified_df
     st.subheader("Narrative Analysis Dashboard")
 
