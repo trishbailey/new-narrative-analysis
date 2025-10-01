@@ -363,7 +363,7 @@ if not st.session_state.narrative_data:
         if narrative_list:
             st.session_state.narrative_data = narrative_list
             st.success("Narratives successfully generated.")
-            st.experimental_rerun()
+            st.rerun()
     else:
         st.info(f"Click the button to sample {min(MAX_POSTS_FOR_ANALYSIS, len(st.session_state.df_full))} posts and generate 3-5 key narratives.")
         
@@ -403,7 +403,7 @@ if st.session_state.narrative_data and not st.session_state.classified_df:
         df_to_classify['NARRATIVE_TAG'] = classified_tags
         st.session_state.classified_df = df_to_classify
         st.success("Classification complete. Dashboard generated.")
-        st.experimental_rerun()
+        st.rerun()
 
 if st.session_state.classified_df is not None:
     df_classified = st.session_state.classified_df
