@@ -349,71 +349,41 @@ with st.sidebar:
 st.markdown("---")
 st.subheader("Step 0: Upload Meltwater Data")
 
+# Updated file_uploader to accept ONLY XLSX
 uploaded_file = st.file_uploader(
-    "Upload your Meltwater CSV File", 
-    type=['csv'],
-    help="Requires columns: Headline, Opening Text, Hit Sentence, Likes, Date, Time, Screen Name"
+    "Upload your Meltwater Data (.xlsx)", 
+    type=['xlsx'],
+    help="Please save your Meltwater export as an Excel file (.xlsx) before uploading."
 )
 
 # Container for upload feedback
 with st.container(border=True):
-    st.info("👈 Upload your Meltwater CSV file to begin the 3-step analysis.")
+    st.info("👈 Upload your Meltwater data to begin the 3-step analysis.")
     
     if uploaded_file is not None and st.session_state.df_full is None:
         try:
-            # --- Highly Robust File Reading Logic (Attempting multiple delimiters and UTF-16) ---
             uploaded_file.seek(0)
+            st.info("Reading Excel file (.xlsx)...")
             
-            # Combinations: (delimiter, encoding) - Prioritizing UTF-16/Tab/Semicolon
-            attempts = [
-                ('\t', 'utf-16'),  # PRIMARY ATTEMPT: UTF-16 + Tab (Common for Excel/Apples Exports)
-                (';', 'utf-16'),  # SECONDARY ATTEMPT: UTF-16 + Semicolon
-                (',', 'utf-8'),   # Default comma + UTF-8
-                (',', 'latin1'),   # Comma + permissive encoding
-                (',', 'unicode_escape'), # Comma + fallback encoding
-                (';', 'unicode_escape'), 
-                ('\t', 'unicode_escape'),
-                ('|', 'unicode_escape'),
-            ]
+            # --- Excel Reading (Standard and reliable for fixed structure) ---
+            df = pd.read_excel(
+                uploaded_file,
+                skiprows=HEADER_ROWS_TO_SKIP, # Skips the row of metadata (index 0)
+                engine='openpyxl' # Use openpyxl engine
+            )
             
-            df = None
+            # --- Final Validation and Preprocessing ---
             
-            for sep, enc in attempts:
-                try:
-                    uploaded_file.seek(0) # Rewind file before each attempt
-                    
-                    # Attempt to read with the current separator and encoding, skipping the first row (HEADER_ROWS_TO_SKIP)
-                    df = pd.read_csv(
-                        uploaded_file, 
-                        low_memory=False, 
-                        encoding=enc, 
-                        sep=sep, 
-                        on_bad_lines='skip', 
-                        skiprows=HEADER_ROWS_TO_SKIP, # <-- FIX APPLIED HERE
-                        quotechar='"' # Explicitly setting quotechar for robustness
-                    )
-                    
-                    # Clean column names (strip whitespace) for reliable checks
-                    df.columns = df.columns.str.strip() 
+            # Clean column names globally
+            df.columns = df.columns.str.strip() 
 
-                    # A quick check to see if the crucial columns exist
-                    if all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                        # Found the correct combination, break all loops
-                        break 
-                    
-                except pd.errors.ParserError:
-                    continue # Try next attempt
-                except UnicodeDecodeError:
-                    continue # Try next attempt if the encoding failed
-                
-            
-            if df is None or not all(col in df.columns for col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]):
-                 raise ValueError("Could not determine the correct CSV delimiter or file is missing essential columns. If problems persist, check your file's delimiter (comma, semicolon, tab) and manually adjust the HEADER_ROWS_TO_SKIP constant.")
-            
-            # --- Data Preprocessing/Cleaning ---
+            # Check for essential columns after reading
+            required_cols = TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]
+            if not all(col in df.columns for col in required_cols):
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                raise ValueError(f"File is missing essential columns: {', '.join(missing_cols)}")
             
             # Combine Date and Time
-            # Use errors='coerce' to handle mixed date/time formats gracefully
             df['DATETIME'] = pd.to_datetime(df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), errors='coerce', dayfirst=True)
             df.dropna(subset=['DATETIME'], inplace=True)
             
