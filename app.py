@@ -675,7 +675,6 @@ with st.container():
                 fig_bar = finalize_figure(
                     fig_bar,
                     title="Post volume by narrative theme",
-                    subtitle="Sorted by total posts",
                     height=500
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
