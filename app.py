@@ -54,7 +54,7 @@ st.set_page_config(
     menu_items={'About': "Grok-Powered Narrative Analyzer for Meltwater Data"}
 )
 
-# --- Global CSS (Light Mode UI + Inter font + extra spacing helpers) ---
+# --- Global CSS (Light Mode UI + Inter font) ---
 st.markdown(
 f"""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -89,7 +89,7 @@ p, span, label, div {{
     color: white !important;
 }}
 .stButton > button.primary:hover {{
-    background-color: #1565C0 !important;
+    background-color: #1565C0 !important; /* darker blue */
     border-color: #1565C0 !important;
 }}
 
@@ -108,7 +108,7 @@ div[data-testid="stAlert"] * p, div[data-testid="stAlert"] * h5 {{
 /* Code snippets */
 code {{
     background-color: #f2f2f2;
-    color: #d63384;
+    color: #d63384; /* magenta-like highlight */
     padding: 2px 4px;
     border-radius: 4px;
 }}
@@ -130,14 +130,12 @@ code {{
   color: #9ca3af; 
   margin-top: 8px;
 }}
-/* Spacer below charts to avoid collisions with following text */
-.chart-spacer {{ height: 18px; }}
 </style>
 """,
     unsafe_allow_html=True
 )
 
-# --- Vibrant Plotly Template (rich colorway + editorial polish + bigger bottom margin) ---
+# --- Vibrant Plotly Template (rich colorway + editorial polish) ---
 VIBRANT_QUAL = [
     "#1E88E5",  # vivid blue
     "#E53935",  # crimson
@@ -153,13 +151,13 @@ VIBRANT_QUAL = [
     "#00897B",  # teal
 ]
 
-# Base template
+# Start from plotly_white and update layout properties
 vibrant_layout = pio.templates["plotly_white"].layout.to_plotly_json()
 vibrant_layout.update({
     "font": {"family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif", "size": 14, "color": "#111111"},
     "colorway": VIBRANT_QUAL,
     "title": {"x": 0.0, "xanchor": "left", "y": 0.95, "yanchor": "top", "font": {"size": 20}},
-    "margin": {"l": 80, "r": 40, "t": 60, "b": 110},  # larger bottom margin to protect legend/source
+    "margin": {"l": 80, "r": 40, "t": 60, "b": 60},
     "paper_bgcolor": "white",
     "plot_bgcolor": "white",
     "xaxis": {
@@ -172,9 +170,8 @@ vibrant_layout.update({
         "tickformat": ",", "title": {"standoff": 10, "font": {"size": 14, "color": "#374151"}},
         "ticks": "", "tickfont": {"size": 12, "color": "#111111"}, "automargin": True
     },
-    # Legend at TOP to prevent collision with text below charts
     "legend": {
-        "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0,
+        "orientation": "h", "yanchor": "bottom", "y": -0.25, "xanchor": "left", "x": 0.0,
         "title": {"text": "", "font": {"size": 12, "color": "#374151"}},
         "font": {"size": 12, "color": "#111111"},
         "itemclick": "toggleothers"
@@ -185,22 +182,20 @@ vibrant_layout.update({
 pio.templates["vibrant"] = pio.templates["plotly_white"]
 pio.templates["vibrant"].layout.update(vibrant_layout)
 
-# --- Helpers for presentation (spacing-safe) ---
+# --- Helpers for presentation (no glow) ---
 def finalize_figure(fig, title:str, subtitle:str|None=None, source:str|None=None, height:int|None=None):
     fig.update_layout(template="vibrant", title={"text": title})
     if height:
         fig.update_layout(height=height)
-    # subtitle above figure
     if subtitle:
         fig.add_annotation(
             text=f"<span style='color:#6b7280'>{subtitle}</span>",
-            xref="paper", yref="paper", x=0, y=1.08, showarrow=False, align="left"
+            xref="paper", yref="paper", x=0, y=1.07, showarrow=False, align="left"
         )
-    # source placed safely within the larger bottom margin
     if source:
         fig.add_annotation(
             text=f"<span style='font-size:12px;color:#9ca3af'>Source: {source}</span>",
-            xref="paper", yref="paper", x=0, y=-0.18, showarrow=False, align="left"
+            xref="paper", yref="paper", x=0, y=-0.25, showarrow=False, align="left"
         )
     return fig
 
@@ -208,6 +203,7 @@ def wrap_text(s: str, width: int = 16) -> str:
     return "<br>".join(textwrap.wrap(s, width))
 
 # --- Utility Functions ---
+# Exponential Backoff for API calls
 def call_grok_with_backoff(payload, api_key, max_retries=5):
     """Handles POST request to Grok API with error handling and exponential backoff."""
     headers = {
@@ -216,8 +212,8 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
     }
     for attempt in range(max_retries):
         try:
-            response = requests.post(API_BASE_URL, headers=headers, json=payload, timeout=300)
-            response.raise_for_status()
+            response = requests.post(API_BASE_URL, headers=headers, json=payload, timeout=300)  # 5 min timeout
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             result = response.json()
             if result.get('choices') and result['choices'][0].get('message'):
                 return result['choices'][0]['message']['content']
@@ -226,7 +222,8 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
                 return None
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429 and attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
+                wait_time = 2 ** attempt
+                time.sleep(wait_time)
             else:
                 st.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
                 return None
@@ -236,6 +233,7 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
     st.error("Max retries reached. API call failed.")
     return None
 
+# Single post classification for the AI Seed (Phase 1 of Step 2)
 def classify_post_for_seed(post_text, themes_list, api_key):
     """Classifies a single post against a list of themes for training data."""
     theme_options = ", ".join([f'"{t}"' for t in themes_list])
@@ -254,20 +252,26 @@ def classify_post_for_seed(post_text, themes_list, api_key):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_query}
         ],
-        "temperature": 0.1,
-        "max_tokens": 50
+        "temperature": 0.1,  # Low temperature for deterministic output
+        "max_tokens": 50     # Keep output short
     }
     response_text = call_grok_with_backoff(payload, api_key)
+    # Clean and validate the response
     if response_text and response_text.strip() in themes_list or response_text.strip() == CLASSIFICATION_DEFAULT:
         return response_text.strip()
-    return CLASSIFICATION_DEFAULT
+    return CLASSIFICATION_DEFAULT  # Fallback if Grok returns garbage
 
+# --- Analysis Logic ---
 def analyze_narratives(corpus, api_key):
     """Calls Grok to generate narrative themes and summaries (Step 1)"""
     system_prompt = (
         "You are a world-class social media narrative analyst. Your task is to analyze the provided corpus of "
         "social media posts (from Meltwater) and identify the 3 to 5 most significant, high-level, emerging "
-        "discussion themes or sub-narratives. Output a single JSON array of objects."
+        "discussion themes or sub-narratives. "
+        "Output your findings as a single JSON array of objects. "
+        "CRITICAL: Ensure the `narrative_title` for each theme is highly specific, descriptive, and suitable "
+        "for use as a label on a bar chart (e.g., 'Escalator Sabotage & UN Conspiracy' instead of 'Technical Problems'). "
+        "The language of the titles and summaries should match the dominant language of the corpus."
     )
     user_query = f"Analyze the following combined text corpus for emerging narratives: {corpus}"
     payload = {
@@ -283,8 +287,8 @@ def analyze_narratives(corpus, api_key):
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "narrative_title": {"type": "STRING"},
-                        "summary": {"type": "STRING"},
+                        "narrative_title": {"type": "STRING", "description": "A specific, chart-ready title for the theme."},
+                        "summary": {"type": "STRING", "description": "A brief summary of the theme and why it is significant."},
                     },
                     "propertyOrdering": ["narrative_title", "summary"]
                 }
@@ -305,12 +309,14 @@ def analyze_narratives(corpus, api_key):
 
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
     """Hybrid Classification: Grok labels seed, then ML model classifies the rest."""
+    # 1. AI Seed Generation (Grok Labels a small sample)
     st.info(f"Phase 1: Generating {AI_SEED_SAMPLE_SIZE} labeled training examples using {CLASSIFICATION_MODEL}...")
     actual_seed_size = min(AI_SEED_SAMPLE_SIZE, len(df_full))
     df_sample = df_full.sample(actual_seed_size, random_state=42).copy()
     df_remaining = df_full.drop(df_sample.index).copy()
     seed_tags = []
 
+    # Use concurrent execution for the seed generation
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_post = {
             executor.submit(classify_post_for_seed, post_text, theme_titles, api_key): post_text
@@ -329,6 +335,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
 
     st.success(f"Phase 1 Complete: {len(df_sample)} examples labeled by Grok.")
 
+    # 2. ML Model Training
     st.info("Phase 2: Training local TF-IDF/LinearSVC model on Grok's labels...")
     X_train = df_sample['POST_TEXT']
     y_train = df_sample['NARRATIVE_TAG']
@@ -339,6 +346,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     model.fit(X_train, y_train)
     st.success("Phase 2 Complete: Local ML Model Trained.")
 
+    # 3. ML Model Prediction
     st.info(f"Phase 3: Classifying remaining {len(df_remaining):,} posts with local model...")
     X_test = df_remaining['POST_TEXT']
     df_remaining['NARRATIVE_TAG'] = model.predict(X_test)
@@ -347,8 +355,9 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     df_classified = pd.concat([df_sample, df_remaining])
     return df_classified
 
+# --- Data Crunching and Summary Generation (Step 3 Helper) ---
 def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
-    """Aggregations for the executive takeaways prompt."""
+    """Performs required data aggregation and formats it into a text summary for Grok."""
     theme_metrics = df_classified.groupby('NARRATIVE_TAG').agg(
         Volume=('POST_TEXT', 'size'),
         Total_Likes=(ENGAGEMENT_COLUMN, 'sum')
@@ -387,8 +396,9 @@ def perform_data_crunching_and_summary(df_classified: pd.DataFrame) -> str:
 def generate_takeaways(summary_data, api_key):
     """Calls Grok to generate 5 key data-driven takeaways (Step 3)"""
     system_prompt = (
-        "You are a senior social media analyst reporting to C-suite executives. Provide five concise, "
-        "data-driven takeaways based only on the provided quantitative summary. Output: JSON array of 5 strings."
+        "You are a senior social media analyst reporting to C-suite executives. Your task is to provide five "
+        "concise, compelling, and data-driven key takeaways based *only* on the provided quantitative data summary. "
+        "Focus on unexpected trends, dominance, or high-engagement narratives. Output should be a JSON array of 5 strings."
     )
     user_query = f"Generate five key takeaways based on this quantitative data summary:\n\n{summary_data}"
     payload = {
@@ -399,7 +409,10 @@ def generate_takeaways(summary_data, api_key):
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": {"type": "ARRAY", "items": {"type": "STRING"}}
+            "responseSchema": {
+                "type": "ARRAY",
+                "items": {"type": "STRING", "description": "A concise, data-driven takeaway."},
+            }
         },
         "temperature": 0.4,
     }
@@ -429,15 +442,15 @@ def plot_stacked_author_share(df_classified, author_col, theme_col, engagement_c
 
     # Keep only top N authors per theme (no 'Other')
     df_top = (df_grouped
-              .sort_values([theme_col, 'Author_Likes'], ascending=[True, False])
+              .sort_values(['%s' % theme_col, 'Author_Likes'], ascending=[True, False])
               .groupby(theme_col, as_index=False)
               .head(top_n))
 
     # Merge totals for percent
     df_top = df_top.merge(theme_total_likes, on=theme_col, how='left')
-    df_top['Percentage'] = np.where(
-        df_top['Theme_Total'] > 0, (df_top['Author_Likes'] / df_top['Theme_Total']) * 100, 0.0
-    )
+    df_top['Percentage'] = np.where(df_top['Theme_Total'] > 0,
+                                    (df_top['Author_Likes'] / df_top['Theme_Total']) * 100,
+                                    0.0)
 
     fig = px.bar(
         df_top,
@@ -482,10 +495,8 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
     df_classified = df_classified.sort_values(by=['Theme_Rank'], ascending=False)
     df_primary_theme = df_classified.drop_duplicates(subset=[author_col], keep='first')[[author_col, 'NARRATIVE_TAG']].rename(columns={'NARRATIVE_TAG': 'Primary_Theme'})
 
-    overall_metrics = df_classified.groupby(author_col).agg(
-        Total_Likes=(engagement_col, 'sum'),
-        Total_Posts=('POST_TEXT', 'size')
-    ).reset_index()
+    overall_metrics = df_classified.groupby(author_col).agg(Total_Likes=(engagement_col, 'sum'),
+                                                            Total_Posts=('POST_TEXT', 'size')).reset_index()
 
     overall_metrics = overall_metrics.merge(df_primary_theme, on=author_col, how='left')
     overall_metrics = overall_metrics.sort_values(by='Total_Likes', ascending=False).head(top_n)
@@ -572,7 +583,7 @@ if 'classified_df' not in st.session_state:
 if 'data_summary_text' not in st.session_state:
     st.session_state.data_summary_text = None
 
-# Check for API key
+# FIX: Check for API key securely outside of the sidebar
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
 
@@ -650,8 +661,7 @@ with st.container():
 
             df[ENGAGEMENT_COLUMN] = pd.to_numeric(df[ENGAGEMENT_COLUMN], errors='coerce').fillna(0).astype(int)
 
-            # FIX: use .str.lower() on the Series (not .lower())
-            df = df[df['POST_TEXT'].astype(str).str.strip().str.lower() != 'nan | nan | nan']
+            df = df[df['POST_TEXT'].str.strip().str.lower() != 'nan | nan | nan']
 
             st.session_state.df_full = df.copy()
             st.success("File uploaded successfully!")
@@ -695,15 +705,10 @@ with st.container():
 
         if st.session_state.narrative_data:
             st.subheader("Identified Narrative Themes")
-            # Loop through the detected narratives and render them
             for i, narrative in enumerate(st.session_state.narrative_data):
                 st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
-            # Cache titles for downstream classifiers/visuals
             st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
-            st.success(
-                "Grok identified narrative themes from a sample set of 100 posts. "
-                "Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics."
-            )
+            st.success("Grok identified narrative themes from a sample set of 100 posts. Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics. (Python can handle much more volume than the LLMs.)")
 
         # --- Data Analysis by Narrative (Step 2) ---
         st.markdown("---")
@@ -748,7 +753,7 @@ with st.container():
                     color='NARRATIVE_TAG',
                     color_discrete_sequence=VIBRANT_QUAL
                 )
-
+                # Wrap long x labels and remove borders
                 def wrap_labels_bar(text):
                     return '<br>'.join(textwrap.wrap(text, 15))
                 fig_bar.update_traces(marker_line_width=0)
@@ -771,26 +776,13 @@ with st.container():
                     height=500
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
-                st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
 
-                # 2) Narrative Volume Trend Over Time (Line) — continuous daily index + centered rolling mean + spline
+                # 2) Narrative Volume Trend Over Time (Line)
                 st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
                 df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
                 df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
-
-                # Ensure a complete daily index per theme (fills gaps with 0)
-                complete = []
-                for theme, g in df_trends_theme.groupby('NARRATIVE_TAG'):
-                    g = g.set_index('DATETIME').asfreq('D', fill_value=0)
-                    g['NARRATIVE_TAG'] = theme
-                    complete.append(g.reset_index())
-                df_trends_theme = pd.concat(complete, ignore_index=True)
-
-                # Centered 7-day rolling mean per theme
-                df_trends_theme = df_trends_theme.sort_values(['NARRATIVE_TAG', 'DATETIME'])
-                df_trends_theme['Volume_Roll_Avg'] = (
-                    df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume']
-                    .transform(lambda x: x.rolling(window=7, min_periods=1, center=True).mean())
+                df_trends_theme['Volume_Roll_Avg'] = df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume'].transform(
+                    lambda x: x.rolling(window=7, min_periods=1).mean()
                 )
 
                 if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
@@ -799,26 +791,25 @@ with st.container():
                         x='DATETIME',
                         y='Volume_Roll_Avg',
                         color='NARRATIVE_TAG',
-                        line_shape='spline',           # smoother visual interpolation
-                        render_mode='svg',
-                        height=550,
+                        title='Volume Trend by Narrative Theme (7-Day Rolling Average)',
                         labels={'Volume_Roll_Avg': 'Rolling Avg. Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
+                        height=550,
                         color_discrete_sequence=VIBRANT_QUAL
                     )
                     fig_line.update_traces(mode="lines", line={"width": 3})
                     fig_line.update_layout(
                         xaxis_title="Date",
-                        yaxis_title="7-day rolling avg. posts"
+                        yaxis_title="7-day rolling avg. posts",
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
                     )
                     fig_line = finalize_figure(
                         fig_line,
                         title="Narrative volume over time",
-                        subtitle="Daily series with centered 7-day rolling average (gaps filled as 0); spline for smooth interpolation",
+                        subtitle="7-day rolling average, by theme",
                         source="Meltwater; analysis by app",
                         height=520
                     )
                     st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
-                    st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
                 else:
                     st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
 
@@ -828,7 +819,6 @@ with st.container():
                     fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                     if fig_theme:
                         st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
-                        st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
 
                 # 4) Overall Top Authors by Likes
                 st.markdown("### Top 10 Overall Authors by Total Likes")
@@ -839,7 +829,6 @@ with st.container():
                     top_n=10
                 )
                 st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
-                st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
 
                 # --- Insights from the Data (Step 3) ---
                 st.markdown("---")
