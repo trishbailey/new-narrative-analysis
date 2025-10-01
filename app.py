@@ -397,11 +397,12 @@ with st.container(border=True):
                 raise ValueError(f"File is missing essential columns. Required: {', '.join(required_cols)}. Missing: {', '.join(missing_cols)}")
             
             # Combine Date and Time
-            # FIX: Explicitly format the date to handle common 'DD-Mon-YYYY' or 'MM/DD/YYYY' formats reliably
+            # FIX: Robust Date Parsing - removing format string and relying on infer_datetime_format
             df['DATETIME'] = pd.to_datetime(
                 df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str), 
                 errors='coerce', 
-                format='%d-%b-%Y %I:%M%p'  # Example format: '23-Sep-2025 09:22AM'
+                infer_datetime_format=True, # Let Pandas figure out the format
+                dayfirst=True # Assume day/month ordering common in exports
             )
             
             # IMPORTANT: Do not drop rows yet! This line was moved down to ensure we calculate 
@@ -421,6 +422,7 @@ with st.container(border=True):
             data_rows = df.shape[0]
             
             # --- FIX: Safe Date Calculation ---
+            # Now safe because we filter for valid dates before calling min/max/strftime
             valid_dates = df['DATETIME'].dropna()
             if not valid_dates.empty:
                 date_min = valid_dates.min().strftime('%Y-%m-%d')
