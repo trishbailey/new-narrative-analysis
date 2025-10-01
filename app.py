@@ -650,7 +650,8 @@ with st.container():
 
             df[ENGAGEMENT_COLUMN] = pd.to_numeric(df[ENGAGEMENT_COLUMN], errors='coerce').fillna(0).astype(int)
 
-            df = df[df['POST_TEXT'].str.strip().lower() != 'nan | nan | nan']
+            # FIX: use .str.lower() on the Series (not .lower())
+            df = df[df['POST_TEXT'].astype(str).str.strip().str.lower() != 'nan | nan | nan']
 
             st.session_state.df_full = df.copy()
             st.success("File uploaded successfully!")
@@ -694,4 +695,159 @@ with st.container():
 
         if st.session_state.narrative_data:
             st.subheader("Identified Narrative Themes")
+            # Loop through the detected narratives and render them
             for i, narrative in enumerate(st.session_state.narrative_data):
+                st.markdown(f"**{i+1}. {narrative['narrative_title']}**: {narrative['summary']}")
+            # Cache titles for downstream classifiers/visuals
+            st.session_state.theme_titles = [item['narrative_title'] for item in st.session_state.narrative_data]
+            st.success(
+                "Grok identified narrative themes from a sample set of 100 posts. "
+                "Based on those themes, it will now tag the entire dataset to enable the Python libraries to do the data analytics."
+            )
+
+        # --- Data Analysis by Narrative (Step 2) ---
+        st.markdown("---")
+        st.header("Data Analysis by Narrative")
+
+        if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
+            if st.button(f"Click here to classify {len(st.session_state.df_full):,} posts by narrative", type="primary"):
+                df_classified = train_and_classify_hybrid(st.session_state.df_full, st.session_state.theme_titles, st.session_state.api_key)
+                if df_classified is not None:
+                    st.session_state.classified_df = df_classified
+                    st.success("Hybrid classification complete. Dashboard generated.")
+                    st.rerun()
+
+        if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
+            df_classified = st.session_state.classified_df
+
+            # Filter for visualization (exclude Other/Unrelated and require valid dates)
+            df_viz = df_classified[
+                (df_classified['NARRATIVE_TAG'] != CLASSIFICATION_DEFAULT) &
+                (df_classified['DATETIME'].notna())
+            ].copy()
+
+            if df_viz.empty:
+                st.warning("No posts were classified into the primary narrative themes OR no posts had valid date information. The dashboard cannot be generated.")
+            else:
+                st.subheader("Narrative Analysis Dashboard")
+
+                # 1) Post Volume by Theme (Bar)
+                st.markdown("### Post Volume by Theme")
+                theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(
+                    Post_Volume=('POST_TEXT', 'size'),
+                ).reset_index()
+                theme_metrics = theme_metrics.sort_values(by='Post_Volume', ascending=False)
+
+                fig_bar = px.bar(
+                    theme_metrics,
+                    x='NARRATIVE_TAG',
+                    y='Post_Volume',
+                    title='Post Volume by Theme',
+                    labels={'Post_Volume': 'Post Volume (Count)', 'NARRATIVE_TAG': 'Narrative Theme'},
+                    height=500,
+                    color='NARRATIVE_TAG',
+                    color_discrete_sequence=VIBRANT_QUAL
+                )
+
+                def wrap_labels_bar(text):
+                    return '<br>'.join(textwrap.wrap(text, 15))
+                fig_bar.update_traces(marker_line_width=0)
+                fig_bar.update_layout(
+                    xaxis={
+                        'categoryorder':'total descending',
+                        'tickangle': 0,
+                        'automargin': True,
+                        'tickfont': {'size': 12},
+                        'tickvals': theme_metrics['NARRATIVE_TAG'].tolist(),
+                        'ticktext': [wrap_labels_bar(t) for t in theme_metrics['NARRATIVE_TAG']],
+                    },
+                    showlegend=False
+                )
+                fig_bar = finalize_figure(
+                    fig_bar,
+                    title="Post volume by narrative theme",
+                    subtitle="Sorted by total posts",
+                    source="Meltwater; analysis by app",
+                    height=500
+                )
+                st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+                st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
+
+                # 2) Narrative Volume Trend Over Time (Line) — continuous daily index + centered rolling mean + spline
+                st.markdown("### Narrative Volume Trend Over Time (7-Day Rolling Average)")
+                df_trends_theme = df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG']).size().reset_index(name='Post_Volume')
+                df_trends_theme['DATETIME'] = pd.to_datetime(df_trends_theme['DATETIME'])
+
+                # Ensure a complete daily index per theme (fills gaps with 0)
+                complete = []
+                for theme, g in df_trends_theme.groupby('NARRATIVE_TAG'):
+                    g = g.set_index('DATETIME').asfreq('D', fill_value=0)
+                    g['NARRATIVE_TAG'] = theme
+                    complete.append(g.reset_index())
+                df_trends_theme = pd.concat(complete, ignore_index=True)
+
+                # Centered 7-day rolling mean per theme
+                df_trends_theme = df_trends_theme.sort_values(['NARRATIVE_TAG', 'DATETIME'])
+                df_trends_theme['Volume_Roll_Avg'] = (
+                    df_trends_theme.groupby('NARRATIVE_TAG')['Post_Volume']
+                    .transform(lambda x: x.rolling(window=7, min_periods=1, center=True).mean())
+                )
+
+                if not df_trends_theme.empty and len(df_trends_theme['DATETIME'].dt.date.unique()) > 1:
+                    fig_line = px.line(
+                        df_trends_theme,
+                        x='DATETIME',
+                        y='Volume_Roll_Avg',
+                        color='NARRATIVE_TAG',
+                        line_shape='spline',           # smoother visual interpolation
+                        render_mode='svg',
+                        height=550,
+                        labels={'Volume_Roll_Avg': 'Rolling Avg. Post Volume', 'DATETIME': 'Date', 'NARRATIVE_TAG': 'Theme'},
+                        color_discrete_sequence=VIBRANT_QUAL
+                    )
+                    fig_line.update_traces(mode="lines", line={"width": 3})
+                    fig_line.update_layout(
+                        xaxis_title="Date",
+                        yaxis_title="7-day rolling avg. posts"
+                    )
+                    fig_line = finalize_figure(
+                        fig_line,
+                        title="Narrative volume over time",
+                        subtitle="Daily series with centered 7-day rolling average (gaps filled as 0); spline for smooth interpolation",
+                        source="Meltwater; analysis by app",
+                        height=520
+                    )
+                    st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
+                    st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
+                else:
+                    st.warning("Trend chart requires posts spanning at least two unique days. Chart cannot be generated with current data.")
+
+                # 3) Stacked Bar Charts: Influencer Share per Theme (Top authors only)
+                st.markdown("### Influencer Share of Engagement (Top Authors Only)")
+                for theme in df_viz['NARRATIVE_TAG'].unique():
+                    fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
+                    if fig_theme:
+                        st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
+                        st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
+
+                # 4) Overall Top Authors by Likes
+                st.markdown("### Top 10 Overall Authors by Total Likes")
+                fig_overall = plot_overall_author_ranking(
+                    df_classified,
+                    AUTHOR_COLUMN,
+                    ENGAGEMENT_COLUMN,
+                    top_n=10
+                )
+                st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
+                st.markdown('<div class="chart-spacer"></div>', unsafe_allow_html=True)
+
+                # --- Insights from the Data (Step 3) ---
+                st.markdown("---")
+                st.header("Insights from the Data")
+                if st.button(f"Click here to generate 5 key takeaways from the data", type="primary"):
+                    data_summary_text = perform_data_crunching_and_summary(df_classified)
+                    takeaways_list = generate_takeaways(data_summary_text, st.session_state.api_key)
+                    if takeaways_list:
+                        st.subheader("Executive Summary: 5 Key Takeaways")
+                        for i, takeaway in enumerate(takeaways_list):
+                            st.markdown(f"**{i+1}.** {takeaway}")
