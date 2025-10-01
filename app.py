@@ -221,8 +221,9 @@ def compute_toxicity_scores(df_viz):
     
     theme_toxicity = df_viz.groupby('NARRATIVE_TAG').agg(
         Avg_Density=('toxicity_density', 'mean'),
-        Pct_Toxic_Posts=('is_toxic', 'mean') * 100
+        Pct_Toxic_Posts=('is_toxic', 'mean')
     ).reset_index()
+    theme_toxicity['Pct_Toxic_Posts'] *= 100
     theme_toxicity = theme_toxicity.sort_values('Avg_Density', ascending=False)
     return df_viz, theme_toxicity
 # --- Utility Functions ---
