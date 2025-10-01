@@ -89,6 +89,12 @@ section[data-testid="stSidebar"] {
     border-color: #581845;
 }
 
+/* --- FIX: Custom CSS for Readable Text in Action Blocks --- */
+/* Target the text inside st.info, st.success, and st.warning to be white */
+div[data-testid="stAlert"] * p {
+    color: white !important;
+}
+
 /* --- FIX: Custom CSS for Model Name Highlight (Lilac Text) --- */
 /* Targeting Streamlit's code block rendering within the model configuration text */
 code {
@@ -97,7 +103,6 @@ code {
     padding: 2px 4px;
     border-radius: 4px;
 }
-/* --- FIX: Custom CSS for Readable API Status Text --- */
 /* Target the success/info markdown text that was previously dark blue */
 .stAlert > div > div > div > div > p {
     color: white !important;
@@ -577,12 +582,10 @@ with st.sidebar:
     # --- API Key Check (Discreet) ---
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
-    else:
-        # FIX: Removed the successful API key notification to reduce clutter
-        pass
-
-    # --- 1. Upload File (NEW POSITION) ---
-    st.markdown("#### 1. File Upload")
+    # FIX: Removed the successful API key notification to reduce clutter
+    
+    # --- 1. File Upload (NEW POSITION - Removed number from title) ---
+    st.markdown("#### File Upload")
     uploaded_file = st.file_uploader(
         "Upload Meltwater Data (.xlsx)", 
         type=['xlsx'],
@@ -590,10 +593,10 @@ with st.sidebar:
         help="Upload your Meltwater file in Excel format (.xlsx) in the left sidebar."
     )
 
-    # --- 2. Download Button (FIX: Moved to sidebar and renamed) ---
+    # --- 2. Download Button (FIX: Moved to sidebar and renamed - Removed number from title) ---
     if st.session_state.classified_df is not None:
         st.markdown("---")
-        st.markdown("#### 2. Download Tagged Data")
+        st.markdown("#### Download Tagged Data")
         # Using CSV export for wider compatibility, regardless of the input format
         csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
         st.download_button(
@@ -703,7 +706,7 @@ with st.container():
 
 # --- Narratives Extraction (Step 1) ---
 st.markdown("---")
-st.header("1. Narratives Extraction")
+st.header("Narratives Extraction")
 
 if not st.session_state.narrative_data:
     # FIX: Use primary button type for custom purple color
@@ -734,7 +737,7 @@ if st.session_state.narrative_data:
 
 # --- Data Analysis by Narrative (Step 2) ---
 st.markdown("---")
-st.header("2. Data Analysis by Narrative")
+st.header("Data Analysis by Narrative")
 
 # FIX: Use explicit check for None to prevent ValueError from pandas __nonzero__
 if st.session_state.narrative_data and (st.session_state.classified_df is None or st.session_state.classified_df.empty):
@@ -867,7 +870,7 @@ if st.session_state.classified_df is not None and not st.session_state.classifie
 
 # --- Insights from the Data (Step 3) ---
 st.markdown("---")
-st.header("3. Insights from the Data")
+st.header("Insights from the Data")
     
 if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
     # FIX: Use primary button type for custom purple color
