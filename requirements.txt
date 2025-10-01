@@ -5,3 +5,4 @@ plotly
 seaborn
 matplotlib # Matplotlib is a dependency often used by Seaborn, good practice to list it
 scikit-learn
+openpyxl
