@@ -34,7 +34,8 @@ ENGAGEMENT_COLUMN = 'Likes'
 AUTHOR_COLUMN = 'Influencer' # CORRECTED based on user's file inspection
 DATE_COLUMN = 'Date'
 TIME_COLUMN = 'Time' # RESTORED: Needed for accurate date parsing
-DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p' # FIX: Explicit format for robust parsing
+# FIX: Explicit format confirmed to work for Meltwater date/time strings
+DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p' 
 
 # --- Streamlit Setup ---
 st.set_page_config(
@@ -577,7 +578,8 @@ with st.sidebar:
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set the '{XAI_API_KEY_ENV_VAR}' environment variable.")
     else:
-        st.info("API Key loaded successfully.") # FIX: Use white font for readable success status
+        # FIX: Removed the successful API key notification to reduce clutter
+        pass
 
     # --- 1. Upload File (NEW POSITION) ---
     st.markdown("#### 1. File Upload")
@@ -602,14 +604,11 @@ with st.sidebar:
             type="primary"
         )
     
-    # --- Model Information (Placed near the bottom, after file actions) ---
-    st.markdown("---")
-    st.markdown("#### Model Configuration")
-    st.markdown(f"""
-    - **Theme Gen:** `<code>{GROK_MODEL}</code>` ({MAX_POSTS_FOR_ANALYSIS} posts)
-    - **AI Seed:** `<code>{CLASSIFICATION_MODEL}</code>` ({AI_SEED_SAMPLE_SIZE} posts)
-    - **ML Classif:** Local Scikit-learn
-    """)
+    # --- Model Information (Removed to reduce clutter) ---
+    # st.markdown("---")
+    # st.markdown("#### Model Configuration")
+    # st.markdown(...)
+    pass
 
 
 # --- STOP APP IF NO KEY ---
@@ -650,6 +649,7 @@ with st.container():
             date_time_series = df[DATE_COLUMN].astype(str) + ' ' + df[TIME_COLUMN].astype(str)
             
             # FIX: Use the specific, successful format string: DD-Mon-YYYY HH:MM:PM
+            # THIS IS THE RESTORED WORKING FIX
             df['DATETIME'] = pd.to_datetime(
                 date_time_series, 
                 format=DATE_TIME_FORMAT, # Explicitly using the '%d-%b-%Y %I:%M%p' format
