@@ -1059,32 +1059,6 @@ with st.container():
                 st.caption(f"_Inclusion rule_: {inc}")
             if exc:
                 st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
-# --- Theme QA: similarity heatmap and top overlaps ---
-simdf = theme_similarity_df(st.session_state.narrative_data)
-if not simdf.empty:
-    st.subheader("Theme QA: Similarity Heatmap")
-    fig_sim = px.imshow(simdf, text_auto=False, aspect="auto",
-                        title="Cosine similarity between themes (higher = more overlap)")
-    fig_sim.update_layout(margin=dict(l=40, r=20, t=50, b=40))
-    st.plotly_chart(
-    finalize_figure(fig_sim, "Theme overlap diagnostics"),
-    use_container_width=True,
-    config={"displayModeBar": False},
-    # This is the patch: use a simple, unique string
-    key="theme_overlap_fig_sim_chart" 
-)
-
-    # list the top 5 most similar pairs (excluding diagonal)
-    pairs = []
-    for i in range(len(simdf)):
-        for j in range(i + 1, len(simdf)):
-            pairs.append((simdf.index[i], simdf.columns[j], simdf.iloc[i, j]))
-    pairs.sort(key=lambda x: x[2], reverse=True)
-    top_pairs = [p for p in pairs if p[2] >= 0.50][:5]
-    if top_pairs:
-        st.markdown("**Most similar theme pairs (flagged for review):**")
-        for a, b, s in top_pairs:
-            st.markdown(f"- {a} ⟷ {b}: {s:.2f}")
 
     # 2) Classification (auto)
     if (st.session_state.narrative_data is not None
