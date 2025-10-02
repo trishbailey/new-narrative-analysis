@@ -870,12 +870,13 @@ def refine_pair_with_llm(A: dict, B: dict, api_key: str) -> dict | tuple[dict, d
         "model": GROK_MODEL,
         "messages": [
             {"role":"system","content":
-             "You are refining two theme definitions. Ensure they are MUTUALLY EXCLUSIVE. "
-             "Decide to (a) MERGE into one sharper theme, or (b) KEEP BOTH but rewrite their titles/rules so they don't overlap. "
-             "Return JSON with either {'action':'merge', 'theme':{...}} or "
-             "{'action':'keep_both','theme_a':{...},'theme_b':{...}}. "
-             "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."},
-            {"role":"user","content": json.dumps({"theme_a":A, "theme_b":B}, ensure_ascii=False)}
+             "You are refining two theme definitions. **Your primary goal is to identify distinct, high-level subtopics.** "
+             "If themes are about the same core event, **MERGE** them aggressively into one sharper, more comprehensive theme. "
+             "Only **KEEP BOTH** if they cover two entirely different aspects (e.g., 'Financial Impact' vs. 'Cultural Backlash'). "
+             "Ensure final themes are MUTUALLY EXCLUSIVE. "
+             "Return JSON with either {'action':'merge', 'theme':{...}} or "
+             "{'action':'keep_both','theme_a':{...},'theme_b':{...}}. "
+             "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."},
         ],
         "generationConfig": {
             "responseMimeType":"application/json",
