@@ -1034,36 +1034,44 @@ with st.container():
         st.session_state.theme_explanations = generate_theme_explanations(corpus_sample, st.session_state.theme_titles, st.session_state.api_key)
         st.rerun()
 
-    # Present themes + explanations
+# Present themes + explanations
     if st.session_state.narrative_data is not None:
         st.header("Narratives Extraction")
         st.subheader("Identified Narrative Themes")
         exp_map = {d.get('narrative_title',''): d.get('explanation','') for d in (st.session_state.theme_explanations or [])}
+        
+        # All lines below this MUST be indented by 4 spaces to be inside the loop
         for i, narrative in enumerate(st.session_state.narrative_data):
-    title = narrative.get('narrative_title', f"Theme {i+1}")
-    st.markdown(f"**{i+1}. {title}**")
-    # Prefer explicit explanation if you generated them; else show theme summary
-    expl = (st.session_state.theme_explanations and 
-            next((e.get('explanation') for e in st.session_state.theme_explanations if e.get('narrative_title')==title), "")) or ""
-    summary = narrative.get('summary','')
-    if expl:
-        st.markdown(expl)
-    elif summary:
-        st.markdown(summary)
-    # NEW: show rules to make distinctness visible
-    inc = narrative.get('inclusion_rule','')
-    exc = narrative.get('exclusion_rules',[]) or []
-    if inc:
-        st.caption(f"_Inclusion rule_: {inc}")
-    if exc:
-        st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
-    # NEW: show rules to make distinctness visible
-    inc = narrative.get('inclusion_rule','')
-    exc = narrative.get('exclusion_rules',[]) or []
-    if inc:
-        st.caption(f"_Inclusion rule_: {inc}")
-    if exc:
-        st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
+            title = narrative.get('narrative_title', f"Theme {i+1}")
+            st.markdown(f"**{i+1}. {title}**")
+            
+            # Prefer explicit explanation if you generated them; else show theme summary
+            expl = (st.session_state.theme_explanations and
+                    next((e.get('explanation') for e in st.session_state.theme_explanations if e.get('narrative_title')==title), "")) or ""
+            summary = narrative.get('summary','')
+            
+            if expl:
+                st.markdown(expl)
+            elif summary:
+                st.markdown(summary)
+                
+            # NEW: show rules to make distinctness visible (first instance)
+            inc = narrative.get('inclusion_rule','')
+            exc = narrative.get('exclusion_rules',[]) or []
+            if inc:
+                st.caption(f"_Inclusion rule_: {inc}")
+            if exc:
+                st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
+                
+            # (NOTE: This second block is a DUPLICATE and likely unnecessary, 
+            # but is kept here and indented correctly to fix the syntax error.)
+            # NEW: show rules to make distinctness visible (duplicate instance)
+            inc = narrative.get('inclusion_rule','')
+            exc = narrative.get('exclusion_rules',[]) or []
+            if inc:
+                st.caption(f"_Inclusion rule_: {inc}")
+            if exc:
+                st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
 # --- Theme QA: similarity heatmap and top overlaps ---
 simdf = theme_similarity_df(st.session_state.narrative_data)
 if not simdf.empty:
