@@ -871,12 +871,12 @@ def refine_pair_with_llm(A: dict, B: dict, api_key: str) -> dict | tuple[dict, d
         "messages": [
             {"role":"system","content":
              "You are refining two theme definitions. **Your primary goal is to identify distinct, high-level subtopics.** "
-             "If themes are about the same core event, **MERGE** them aggressively into one sharper, more comprehensive theme. "
-             "Only **KEEP BOTH** if they cover two entirely different aspects (e.g., 'Financial Impact' vs. 'Cultural Backlash'). "
-             "Ensure final themes are MUTUALLY EXCLUSIVE. "
-             "Return JSON with either {'action':'merge', 'theme':{...}} or "
-             "{'action':'keep_both','theme_a':{...},'theme_b':{...}}. "
-             "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."},
+             "If themes are about the same core event, **MERGE** them aggressively into one sharper, more comprehensive theme. "
+             "Only **KEEP BOTH** if they cover two entirely different aspects (e.g., 'Financial Impact' vs. 'Cultural Backlash'). "
+             "Ensure final themes are MUTUALLY EXCLUSIVE."
+             "Return JSON with either {'action':'merge', 'theme':{...}} or "
+             "{'action':'keep_both','theme_a':{...},'theme_b':{...}}. "
+             "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."},
         ],
         "generationConfig": {
             "responseMimeType":"application/json",
