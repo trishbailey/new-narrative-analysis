@@ -1021,12 +1021,11 @@ with st.container():
             api_key=st.session_state.api_key
         )
         if themes_merged:
-            # Run a second audit just to be safe (idempotent)
-            audited = audit_and_refine_themes(themes_merged, st.session_state.api_key)
-            st.session_state.narrative_data = audited
-            st.session_state.theme_titles = [t['narrative_title'] for t in audited if t.get('narrative_title')]
-            st.rerun() # Ensure this is also indented if you want it conditional
-
+            # Run a second audit just to be safe (idempotent)
+            audited = audit_and_refine_themes(themes_merged, st.session_state.api_key)
+            st.session_state.narrative_data = audited
+            st.session_state.theme_titles = [t['narrative_title'] for t in audited if t.get('narrative_title')]
+            st.rerun() # Ensure this is also indented if you want it conditional
 
     # 1a) Theme explanations (auto)
     if st.session_state.narrative_data is not None and st.session_state.theme_explanations is None:
