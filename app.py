@@ -831,8 +831,7 @@ def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size:i
 
     # Reduce v2: audit + refine
     refined = audit_and_refine_themes(merged, api_key)
-
-    def theme_similarity_df(themes: list[dict]) -> pd.DataFrame:
+def theme_similarity_df(themes: list[dict]) -> pd.DataFrame:
     """
     Build a cosine-similarity matrix between themes using their title/summary/rules/examples.
     Requires _theme_vector_strings(...) and _tfidf_features(...) to be defined above.
@@ -847,8 +846,6 @@ def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size:i
 
     return pd.DataFrame(sims, index=titles, columns=titles)
 
-    # Cap to a reasonable set for charts
-    return refined[:14]
 def _theme_vector_strings(themes: list[dict]) -> list[str]:
     """Flatten each theme into a text string for vectorization."""
     blobs = []
