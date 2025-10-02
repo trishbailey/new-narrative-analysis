@@ -11,6 +11,10 @@ import plotly.express as px
 import plotly.io as pio
 import matplotlib.pyplot as plt
 import concurrent.futures
+# NEW imports for distinctness & QA
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics.pairwise import cosine_similarity
+
 from difflib import SequenceMatcher
 
 # ML / NLP
@@ -34,6 +38,16 @@ SAMPLING_SPLIT = (0.40, 0.40, 0.20)       # (time-random, top-engagement, novelt
 NOVELTY_TFIDF_MAX_DOCS = 20000            # cap TF-IDF corpus size for novelty
 OTHER_RATE_THRESHOLD = 0.35               # trigger refresh if >35% Other
 MAX_REFRESH_ROUNDS = 1
+
+# --- Theme distinctness & QA thresholds ---
+THEME_SIM_THRESHOLD = 0.80     # cosine similarity threshold to flag near-duplicates
+THEME_TERM_JACCARD = 0.60      # token overlap threshold (secondary check)
+CLUSTER_K_MIN = 6              # min clusters per batch
+CLUSTER_K_MAX = 12             # max clusters per batch
+CLUSTER_EXEMPLARS = 12         # exemplar posts sent to LLM per cluster
+TIEBREAK_MAX = 300             # cap LLM tie-break calls on uncertain classifications
+ABSTAIN_PROB = 0.45            # below this max-prob => abstain to LLM
+ABSTAIN_MARGIN = 0.10          # if (p1 - p2) < margin => abstain to LLM
 
 # Hybrid classification
 AI_SEED_SAMPLE_SIZE = 200                 # better diversity for LinearSVC
@@ -259,121 +273,47 @@ def analyze_narratives(corpus, api_key):
     normalized = normalize_narratives(parsed)
     return normalized if normalized else None
 
-def generate_theme_explanations(corpus_sample: str, theme_titles: list[str], api_key: str):
-    if not theme_titles: return []
-    titles_json = json.dumps(theme_titles, ensure_ascii=False)
-    system_prompt = (
-        "You are an experienced OSINT analyst. Based ONLY on the provided corpus sample, "
-        "write concise 2–3 sentence factual explanations for each theme title. "
-        "Return a JSON array of objects with keys narrative_title and explanation. "
-        "narrative_title must EXACTLY match each input title. No speculation."
-    )
-    user_query = f"Corpus sample:\n{corpus_sample}\n\nTheme titles (JSON): {titles_json}"
-    payload = {
-        "model": GROK_MODEL,
-        "messages": [{"role":"system","content": system_prompt},
-                     {"role":"user","content": user_query}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": {"type":"ARRAY","items":{"type":"OBJECT","properties":{
-                "narrative_title":{"type":"STRING"},"explanation":{"type":"STRING"}},
-                "required":["narrative_title","explanation"]}}
-        },
-        "temperature": 0.3
-    }
-    with st.spinner("Drafting brief explanations for each theme..."):
-        resp = call_grok_with_backoff(payload, api_key)
-    if not resp: return []
-    try:
-        data = json.loads(resp)
-    except json.JSONDecodeError:
-        st.warning("Could not parse theme explanations JSON; skipping.")
-        return []
-    exp_map = {}
-    if isinstance(data, list):
-        for d in data:
-            if isinstance(d, dict):
-                t = str(d.get("narrative_title","")).strip()
-                e = str(d.get("explanation","")).strip()
-                if t and e: exp_map[t] = e
-    return [{"narrative_title": t, "explanation": exp_map.get(t,"")} for t in theme_titles]
-
-# ---------------------------
-# Theme merging / dedup
-# ---------------------------
-_STOPWORDS = set("a an the of for to and or on in with by about over under through from into against across around".split())
-
-def _normalize_title(s: str) -> set:
-    s = s.lower()
-    s = re.sub(r'[^a-z0-9\s]', ' ', s)
-    toks = [t for t in s.split() if t and t not in _STOPWORDS]
-    return set(toks)
-
-def _jaccard(a: set, b: set) -> float:
-    if not a or not b: return 0.0
-    inter = len(a & b)
-    union = len(a | b)
-    return inter / union if union else 0.0
-
-def merge_theme_lists(theme_lists: list[list[dict]], max_out: int = 12) -> list[dict]:
-    """Merge and deduplicate theme dicts across batches via token Jaccard & simple similarity."""
-    all_themes = []
-    for L in theme_lists:
-        if isinstance(L, list): all_themes.extend(L)
-
-    merged = []
-    sigs = []
-    for t in all_themes:
-        title = t.get('narrative_title','').strip()
-        summ = t.get('summary','').strip()
-        if not title: continue
-        sig = _normalize_title(title)
-        matched = False
-        for i, s in enumerate(sigs):
-            # consider similar if Jaccard >= 0.6 or SequenceMatcher >= 0.8
-            if _jaccard(sig, s) >= 0.6 or SequenceMatcher(None, title.lower(), merged[i]['narrative_title'].lower()).ratio() >= 0.8:
-                # merge summaries conservatively
-                if summ and summ not in merged[i]['summary']:
-                    merged[i]['summary'] = (merged[i]['summary'] + " " + summ).strip()
-                matched = True
-                break
-        if not matched:
-            merged.append({'narrative_title': title, 'summary': summ})
-            sigs.append(sig)
-
-    # limit to top N (keep order observed)
-    return merged[:max_out]
-
-# ---------------------------
-# Hybrid classification
-# ---------------------------
-def classify_post_for_seed(post_text, themes_list, api_key):
-    theme_options = ", ".join([f'"{t}"' for t in themes_list])
-    system_prompt = (
-        "You are an expert text classifier. Categorize the post into one of the provided themes, "
-        f"or '{CLASSIFICATION_DEFAULT}' if none apply. Respond with ONLY the exact theme text."
-    )
-    user_query = f"Post: '{post_text}'\n\nThemes: [{theme_options}, '{CLASSIFICATION_DEFAULT}']"
+def tie_break_llm(post_text: str, themes: list[dict], api_key: str) -> str:
+    """
+    Ask LLM to assign a theme using inclusion/exclusion rules.
+    Returns a theme title or CLASSIFICATION_DEFAULT.
+    """
+    themes_brief = [
+        {
+            "narrative_title": t.get("narrative_title",""),
+            "inclusion_rule": t.get("inclusion_rule",""),
+            "exclusion_rules": t.get("exclusion_rules",[]),
+            "summary": t.get("summary","")
+        } for t in themes
+    ]
+    system = ("You assign a single best-fitting theme for the post using the provided inclusion/exclusion rules. "
+              f"If none match, return exactly '{CLASSIFICATION_DEFAULT}'. Respond with ONLY the theme title or that exact fallback.")
+    user = json.dumps({"post": post_text, "themes": themes_brief}, ensure_ascii=False)
     payload = {
         "model": CLASSIFICATION_MODEL,
-        "messages": [{"role":"system","content": system_prompt},
-                     {"role":"user","content": user_query}],
-        "temperature": 0.1, "max_tokens": 50
+        "messages": [{"role":"system","content": system},{"role":"user","content": user}],
+        "temperature": 0.0, "max_tokens": 50
     }
     r = call_grok_with_backoff(payload, api_key)
-    if r:
-        label = r.strip()
-        if label in themes_list or label == CLASSIFICATION_DEFAULT:
-            return label
-    return CLASSIFICATION_DEFAULT
+    if not r: 
+        return CLASSIFICATION_DEFAULT
+    label = r.strip()
+    titles = [t.get('narrative_title') for t in themes if t.get('narrative_title')]
+    return label if label in titles or label == CLASSIFICATION_DEFAULT else CLASSIFICATION_DEFAULT
 
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
+    """
+    Phase 1: LLM seed labels (unchanged logic).
+    Phase 2: Calibrated LinearSVC for probabilities.
+    Phase 3: Predict; abstain to LLM tie-break when uncertain.
+    """
     st.info(f"Phase 1: Labeling {AI_SEED_SAMPLE_SIZE} examples with {CLASSIFICATION_MODEL}...")
     actual_seed = min(AI_SEED_SAMPLE_SIZE, len(df_full))
     df_sample = df_full.sample(actual_seed, random_state=42).copy()
     df_rest = df_full.drop(df_sample.index).copy()
-    seed_tags = []
 
+    # LLM seed
+    seed_tags = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
         futures = {ex.submit(classify_post_for_seed, t, theme_titles, api_key): t for t in df_sample['POST_TEXT']}
         progress = st.progress(0)
@@ -387,17 +327,49 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
         st.error("Seed labels lacked diversity. Try regenerating themes or increasing seed size.")
         return None
 
-    st.success("Phase 2: Training local TF-IDF/LinearSVC...")
+    # Phase 2: Calibrated classifier
+    st.success("Phase 2: Training Calibrated LinearSVC...")
     model = Pipeline([
         ('tfidf', TfidfVectorizer(stop_words='english', max_features=5000)),
-        ('clf', LinearSVC(C=1.0, random_state=42, max_iter=5000))
+        ('clf', CalibratedClassifierCV(LinearSVC(C=1.0, random_state=42, max_iter=5000), method='sigmoid', cv=3))
     ])
     model.fit(df_sample['POST_TEXT'], df_sample['NARRATIVE_TAG'])
 
-    st.info(f"Phase 3: Classifying remaining {len(df_rest):,} posts...")
-    df_rest['NARRATIVE_TAG'] = model.predict(df_rest['POST_TEXT'])
-    st.success("Full dataset classification complete.")
+    # Phase 3: Predict with abstention + LLM tie-break
+    st.info(f"Phase 3: Classifying remaining {len(df_rest):,} posts with abstention...")
+    proba = model.predict_proba(df_rest['POST_TEXT'])
+    classes = list(model.named_steps['clf'].classes_)
+    top_idx = proba.argmax(axis=1)
+    top_prob = proba.max(axis=1)
+    # second best margin
+    sorted_idx = np.argsort(proba, axis=1)
+    second_best = proba[np.arange(proba.shape[0]), sorted_idx[:,-2]]
+    margin = top_prob - second_best
 
+    # initial labels
+    labels = np.array([classes[i] for i in top_idx])
+
+    # decide uncertain
+    uncertain_mask = (top_prob < ABSTAIN_PROB) | (margin < ABSTAIN_MARGIN)
+    uncertain_indices = np.where(uncertain_mask)[0]
+    if len(uncertain_indices) > 0:
+        st.warning(f"Running LLM tie-break on {min(len(uncertain_indices), TIEBREAK_MAX)} uncertain posts...")
+        # Pull the current themes from session (contains rules)
+        themes_full = st.session_state.narrative_data
+        # Limit for cost; you can raise TIEBREAK_MAX if needed
+        to_fix = uncertain_indices[:TIEBREAK_MAX]
+        texts = df_rest['POST_TEXT'].iloc[to_fix].tolist()
+        fixed = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            futs = [ex.submit(tie_break_llm, t, themes_full, api_key) for t in texts]
+            for fut in concurrent.futures.as_completed(futs):
+                fixed.append(fut.result())
+        for local_i, lab in enumerate(fixed):
+            abs_i = to_fix[local_i]
+            labels[abs_i] = lab
+
+    df_rest['NARRATIVE_TAG'] = labels
+    st.success("Full dataset classification complete.")
     return pd.concat([df_sample, df_rest], ignore_index=True)
 
 # ---------------------------
@@ -707,22 +679,260 @@ def select_novelty_indices(df_remain: pd.DataFrame, k: int, random_state:int=42)
         if len(select) >= k: break
     return select[:k]
 
+# --- Cluster → label: build clusters and ask LLM to label each cluster only ---
+
+def _tfidf_features(texts):
+    tfidf = TfidfVectorizer(stop_words='english', max_features=5000)
+    X = tfidf.fit_transform(texts)
+    return tfidf, X
+
+def build_cluster_views(df: pd.DataFrame, index_list: list[int], k: int) -> list[dict]:
+    """
+    Cluster a subset of posts and return a list of cluster dicts:
+      { 'post_indices': [abs_idx...], 'top_terms': [...], 'exemplars': [abs_idx...] }
+    """
+    sub = df.loc[index_list]
+    texts = sub['POST_TEXT'].astype(str).tolist()
+    if len(texts) < k:
+        k = max(2, min(len(texts), CLUSTER_K_MIN))
+
+    tfidf, X = _tfidf_features(texts)
+    km = MiniBatchKMeans(n_clusters=k, random_state=42, n_init=3, batch_size=1024)
+    labels = km.fit_predict(X)
+
+    # top terms per cluster from centroids
+    terms = np.array(tfidf.get_feature_names_out())
+    centroids = km.cluster_centers_
+    clusters = []
+    for cid in range(k):
+        mask = (labels == cid)
+        if not mask.any(): 
+            continue
+        cluster_abs_idx = list(sub.index[mask])
+        # top 10 terms
+        centroid = centroids[cid]
+        top_idx = np.argsort(centroid)[-10:][::-1]
+        top_terms = terms[top_idx].tolist()
+        # pick exemplars: closest to centroid
+        # cosine distance ~ 1 - cosine_similarity
+        Xc = X[mask]
+        sim = cosine_similarity(Xc, centroids[cid].reshape(1, -1)).ravel()
+        order = np.argsort(sim)[::-1]
+        chosen = order[:CLUSTER_EXEMPLARS]
+        exemplars = [cluster_abs_idx[i] for i in chosen]
+        clusters.append({
+            'post_indices': cluster_abs_idx,
+            'top_terms': top_terms,
+            'exemplars': exemplars
+        })
+    return clusters
+
+def label_cluster_with_llm(cluster: dict, df: pd.DataFrame, api_key: str) -> dict | None:
+    """
+    Ask LLM to label THIS cluster only, with strict mutual-exclusivity scaffolding.
+    Returns a theme dict with fields used later in QA and classification.
+    """
+    ex_texts = df.loc[cluster['exemplars'], 'POST_TEXT'].astype(str).tolist()
+    ex_json = json.dumps(ex_texts[:CLUSTER_EXEMPLARS], ensure_ascii=False)
+    terms_json = json.dumps(cluster['top_terms'], ensure_ascii=False)
+
+    system_prompt = (
+        "You label ONE cluster of posts into a distinct sub-theme. "
+        "Your theme MUST NOT be an umbrella that could subsume other plausible sub-themes. "
+        "Return JSON with: narrative_title (specific), summary (2 sentences), "
+        "inclusion_rule (1 sentence decision rule), exclusion_rules (array of 1–3 rules naming what to avoid), "
+        "representative_terms (3–6 phrases), positive_examples (1–2 snippets from provided), near_miss_examples (1–2 snippets). "
+        "Do not invent content beyond the provided examples."
+    )
+    user_prompt = (
+        f"Cluster top terms:\n{terms_json}\n\n"
+        f"Cluster exemplar posts (JSON array):\n{ex_json}\n\n"
+        "Return a single JSON object with the specified keys."
+    )
+    payload = {
+        "model": GROK_MODEL,
+        "messages": [
+            {"role":"system","content": system_prompt},
+            {"role":"user","content": user_prompt}
+        ],
+        "generationConfig": {
+            "responseMimeType":"application/json",
+            "responseSchema": {
+                "type":"OBJECT",
+                "properties":{
+                    "narrative_title":{"type":"STRING"},
+                    "summary":{"type":"STRING"},
+                    "inclusion_rule":{"type":"STRING"},
+                    "exclusion_rules":{"type":"ARRAY","items":{"type":"STRING"}},
+                    "representative_terms":{"type":"ARRAY","items":{"type":"STRING"}},
+                    "positive_examples":{"type":"ARRAY","items":{"type":"STRING"}},
+                    "near_miss_examples":{"type":"ARRAY","items":{"type":"STRING"}}
+                },
+                "required":["narrative_title","summary","inclusion_rule","exclusion_rules","representative_terms"]
+            }
+        },
+        "temperature": 0.4
+    }
+    resp = call_grok_with_backoff(payload, api_key)
+    if not resp:
+        return None
+    try:
+        obj = json.loads(resp)
+    except json.JSONDecodeError:
+        return None
+    # minimal sanity
+    title = str(obj.get("narrative_title","")).strip()
+    if not title:
+        return None
+    # pack theme
+    return {
+        "narrative_title": title,
+        "summary": str(obj.get("summary","")).strip(),
+        "inclusion_rule": str(obj.get("inclusion_rule","")).strip(),
+        "exclusion_rules": obj.get("exclusion_rules", []) or [],
+        "representative_terms": obj.get("representative_terms", []) or [],
+        "positive_examples": obj.get("positive_examples", []) or [],
+        "near_miss_examples": obj.get("near_miss_examples", []) or []
+    }
+
 # ---------------------------
 # Map-Reduce theme extraction
 # ---------------------------
 def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size:int, api_key:str) -> list[dict]:
-    batches = []
-    # Stable order for reproducibility
-    idx = list(indices)
-    for i in range(0, len(idx), batch_size):
-        sub_idx = idx[i:i+batch_size]
-        corpus = ' | '.join(df.loc[sub_idx, 'POST_TEXT'].astype(str).tolist())
-        res = analyze_narratives(corpus, api_key)
-        if res: batches.append(res)
-    if not batches:
+    """
+    Map: split indices into batches; for each batch, cluster posts and label each cluster (LLM).
+    Reduce: merge near-duplicates across batches, then audit & refine.
+    """
+    all_themes = []
+
+    # Map
+    for i in range(0, len(indices), batch_size):
+        sub_idx = indices[i:i+batch_size]
+        # Pick cluster count dynamically: ~1 theme per 60–80 posts, bounded
+        k_guess = int(np.clip(round(len(sub_idx) / 70), CLUSTER_K_MIN, CLUSTER_K_MAX))
+        clusters = build_cluster_views(df, sub_idx, k_guess)
+
+        # Label clusters concurrently
+        out = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            futures = [ex.submit(label_cluster_with_llm, c, df, api_key) for c in clusters]
+            for fut in concurrent.futures.as_completed(futures):
+                theme = fut.result()
+                if theme:
+                    out.append(theme)
+        if out:
+            all_themes.extend(out)
+
+    if not all_themes:
         return []
-    merged = merge_theme_lists(batches, max_out=12)
-    return merged
+
+    # Reduce v1: merge close duplicates by title tokens / fuzzy ratio (reuse your existing merge)
+    merged = merge_theme_lists([all_themes], max_out=20)  # temporary max
+
+    # Reduce v2: audit + refine
+    refined = audit_and_refine_themes(merged, api_key)
+
+    def theme_similarity_df(themes: list[dict]) -> pd.DataFrame:
+    if not themes or len(themes) < 2:
+        return pd.DataFrame()
+    blobs = _theme_vector_strings(themes)
+    tfidf, X = _tfidf_features(blobs)
+    sims = cosine_similarity(X)
+    titles = [t.get('narrative_title','') for t in themes]
+    return pd.DataFrame(sims, index=titles, columns=titles)
+
+    # Cap to a reasonable set for charts
+    return refined[:14]
+def _theme_vector_strings(themes: list[dict]) -> list[str]:
+    """Flatten each theme into a text string for vectorization."""
+    blobs = []
+    for t in themes:
+        parts = [
+            t.get('narrative_title',''),
+            t.get('summary',''),
+            t.get('inclusion_rule',''),
+            " ".join(t.get('exclusion_rules',[]) or []),
+            " ".join(t.get('representative_terms',[]) or []),
+            " ".join(t.get('positive_examples',[]) or []),
+        ]
+        blobs.append(" ".join([p for p in parts if p]))
+    return blobs
+
+def refine_pair_with_llm(A: dict, B: dict, api_key: str) -> dict | tuple[dict, dict] | None:
+    """
+    Ask LLM to decide: keep A, keep B, or MERGE into a sharper single theme.
+    Returns: merged dict OR (A_refined, B_refined) OR None on failure.
+    """
+    payload = {
+        "model": GROK_MODEL,
+        "messages": [
+            {"role":"system","content":
+             "You are refining two theme definitions. Ensure they are MUTUALLY EXCLUSIVE. "
+             "Decide to (a) MERGE into one sharper theme, or (b) KEEP BOTH but rewrite their titles/rules so they don't overlap. "
+             "Return JSON with either {'action':'merge', 'theme':{...}} or "
+             "{'action':'keep_both','theme_a':{...},'theme_b':{...}}. "
+             "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."},
+            {"role":"user","content": json.dumps({"theme_a":A, "theme_b":B}, ensure_ascii=False)}
+        ],
+        "generationConfig": {
+            "responseMimeType":"application/json",
+            "responseSchema": {"type":"OBJECT"}
+        },
+        "temperature": 0.2
+    }
+    resp = call_grok_with_backoff(payload, api_key)
+    if not resp: 
+        return None
+    try:
+        obj = json.loads(resp)
+    except json.JSONDecodeError:
+        return None
+    action = (obj.get("action") or "").lower()
+    if action == "merge" and isinstance(obj.get("theme"), dict):
+        return obj["theme"]
+    if action == "keep_both" and isinstance(obj.get("theme_a"), dict) and isinstance(obj.get("theme_b"), dict):
+        return (obj["theme_a"], obj["theme_b"])
+    return None
+
+def audit_and_refine_themes(themes: list[dict], api_key: str) -> list[dict]:
+    """Flag near-duplicate themes and refine via LLM; fallback to heuristic merge if LLM fails."""
+    if len(themes) <= 1:
+        return themes
+
+    blobs = _theme_vector_strings(themes)
+    tfidf, X = _tfidf_features(blobs)
+    sims = cosine_similarity(X)
+
+    keep = themes.copy()
+    removed = set()
+    # Greedy pass: compare upper triangle
+    for i in range(len(keep)):
+        if i in removed: 
+            continue
+        for j in range(i+1, len(keep)):
+            if j in removed: 
+                continue
+            s = sims[i, j]
+            if s >= THEME_SIM_THRESHOLD:
+                # try refine
+                ref = refine_pair_with_llm(keep[i], keep[j], api_key)
+                if isinstance(ref, dict):
+                    keep[i] = ref
+                    removed.add(j)
+                elif isinstance(ref, tuple) and len(ref) == 2:
+                    keep[i], keep[j] = ref
+                else:
+                    # fallback: keep the more specific (longer inclusion rule)
+                    len_i = len(keep[i].get('inclusion_rule',''))
+                    len_j = len(keep[j].get('inclusion_rule',''))
+                    if len_i >= len_j:
+                        removed.add(j)
+                    else:
+                        removed.add(i)
+                        break
+    refined = [t for k, t in enumerate(keep) if k not in removed]
+    return refined
+
 
 # ---------------------------
 # Session State
@@ -808,9 +1018,12 @@ with st.container():
             api_key=st.session_state.api_key
         )
         if themes_merged:
-            st.session_state.narrative_data = themes_merged
-            st.session_state.theme_titles = [t['narrative_title'] for t in themes_merged if t.get('narrative_title')]
-        st.rerun()
+    # Run a second audit just to be safe (idempotent)
+    audited = audit_and_refine_themes(themes_merged, st.session_state.api_key)
+    st.session_state.narrative_data = audited
+    st.session_state.theme_titles = [t['narrative_title'] for t in audited if t.get('narrative_title')]
+st.rerun()
+
 
     # 1a) Theme explanations (auto)
     if st.session_state.narrative_data is not None and st.session_state.theme_explanations is None:
@@ -825,14 +1038,66 @@ with st.container():
         st.subheader("Identified Narrative Themes")
         exp_map = {d.get('narrative_title',''): d.get('explanation','') for d in (st.session_state.theme_explanations or [])}
         for i, narrative in enumerate(st.session_state.narrative_data):
-            title = narrative.get('narrative_title', f"Theme {i+1}")
-            short_summary = narrative.get('summary', '').strip()
-            st.markdown(f"**{i+1}. {title}**")
-            long_expl = exp_map.get(title, "")
-            if long_expl:
-                st.markdown(long_expl)
-            elif short_summary:
-                st.markdown(short_summary)
+    title = narrative.get('narrative_title', f"Theme {i+1}")
+    st.markdown(f"**{i+1}. {title}**")
+    # Prefer explicit explanation if you generated them; else show theme summary
+    expl = (st.session_state.theme_explanations and 
+            next((e.get('explanation') for e in st.session_state.theme_explanations if e.get('narrative_title')==title), "")) or ""
+    summary = narrative.get('summary','')
+    if expl:
+        st.markdown(expl)
+    elif summary:
+        st.markdown(summary)
+    # NEW: show rules to make distinctness visible
+    inc = narrative.get('inclusion_rule','')
+    exc = narrative.get('exclusion_rules',[]) or []
+    if inc:
+        st.caption(f"_Inclusion rule_: {inc}")
+    if exc:
+        st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
+    # NEW: show rules to make distinctness visible
+    inc = narrative.get('inclusion_rule','')
+    exc = narrative.get('exclusion_rules',[]) or []
+    if inc:
+        st.caption(f"_Inclusion rule_: {inc}")
+    if exc:
+        st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
+        # --- Theme QA: similarity heatmap and top overlaps ---
+simdf = theme_similarity_df(st.session_state.narrative_data)
+if not simdf.empty:
+    st.subheader("Theme QA: Similarity Heatmap")
+    fig_sim = px.imshow(simdf, text_auto=False, aspect="auto", title="Cosine similarity between themes (higher = more overlap)")
+    fig_sim.update_layout(margin=dict(l=40,r=20,t=50,b=40))
+    st.plotly_chart(finalize_figure(fig_sim, "Theme overlap diagnostics"), use_container_width=True, config={"displayModeBar": False})
+    # list the top 5 most similar pairs (excluding diagonal)
+    pairs = []
+    for i in range(len(simdf)):
+        for j in range(i+1, len(simdf)):
+            pairs.append((simdf.index[i], simdf.columns[j], simdf.iloc[i,j]))
+    pairs.sort(key=lambda x: x[2], reverse=True)
+    top_pairs = [p for p in pairs if p[2] >= 0.50][:5]
+    if top_pairs:
+        st.markdown("**Most similar theme pairs (flagged for review):**")
+        for a,b,s in top_pairs:
+            st.markdown(f"- {a} ⟷ {b}: {s:.2f}")
+    # --- Theme QA: similarity heatmap and top overlaps ---
+simdf = theme_similarity_df(st.session_state.narrative_data)
+if not simdf.empty:
+    st.subheader("Theme QA: Similarity Heatmap")
+    fig_sim = px.imshow(simdf, text_auto=False, aspect="auto", title="Cosine similarity between themes (higher = more overlap)")
+    fig_sim.update_layout(margin=dict(l=40,r=20,t=50,b=40))
+    st.plotly_chart(finalize_figure(fig_sim, "Theme overlap diagnostics"), use_container_width=True, config={"displayModeBar": False})
+    # list the top 5 most similar pairs (excluding diagonal)
+    pairs = []
+    for i in range(len(simdf)):
+        for j in range(i+1, len(simdf)):
+            pairs.append((simdf.index[i], simdf.columns[j], simdf.iloc[i,j]))
+    pairs.sort(key=lambda x: x[2], reverse=True)
+    top_pairs = [p for p in pairs if p[2] >= 0.50][:5]
+    if top_pairs:
+        st.markdown("**Most similar theme pairs (flagged for review):**")
+        for a,b,s in top_pairs:
+            st.markdown(f"- {a} ⟷ {b}: {s:.2f}")
         st.markdown("---")
         st.success("Themes identified. Proceeding to tagging and analytics...")
 
