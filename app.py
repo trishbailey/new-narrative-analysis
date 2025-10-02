@@ -831,20 +831,6 @@ def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size:i
 
     # Reduce v2: audit + refine
     refined = audit_and_refine_themes(merged, api_key)
-def theme_similarity_df(themes: list[dict]) -> pd.DataFrame:
-    """
-    Build a cosine-similarity matrix between themes using their title/summary/rules/examples.
-    Requires _theme_vector_strings(...) and _tfidf_features(...) to be defined above.
-    """
-    if not themes or len(themes) < 2:
-        return pd.DataFrame()
-
-    blobs = _theme_vector_strings(themes)          # from Patch 5
-    tfidf, X = _tfidf_features(blobs)              # reuses your TF-IDF helper
-    sims = cosine_similarity(X)
-    titles = [t.get('narrative_title', '') for t in themes]
-
-    return pd.DataFrame(sims, index=titles, columns=titles)
 
 def _theme_vector_strings(themes: list[dict]) -> list[str]:
     """Flatten each theme into a text string for vectorization."""
@@ -1099,27 +1085,6 @@ if not simdf.empty:
         st.markdown("**Most similar theme pairs (flagged for review):**")
         for a, b, s in top_pairs:
             st.markdown(f"- {a} ⟷ {b}: {s:.2f}")
-
-    # --- Theme QA: similarity heatmap and top overlaps ---
-simdf = theme_similarity_df(st.session_state.narrative_data)
-if not simdf.empty:
-    st.subheader("Theme QA: Similarity Heatmap")
-    fig_sim = px.imshow(simdf, text_auto=False, aspect="auto", title="Cosine similarity between themes (higher = more overlap)")
-    fig_sim.update_layout(margin=dict(l=40,r=20,t=50,b=40))
-    st.plotly_chart(finalize_figure(fig_sim, "Theme overlap diagnostics"), use_container_width=True, config={"displayModeBar": False})
-    # list the top 5 most similar pairs (excluding diagonal)
-    pairs = []
-    for i in range(len(simdf)):
-        for j in range(i+1, len(simdf)):
-            pairs.append((simdf.index[i], simdf.columns[j], simdf.iloc[i,j]))
-    pairs.sort(key=lambda x: x[2], reverse=True)
-    top_pairs = [p for p in pairs if p[2] >= 0.50][:5]
-    if top_pairs:
-        st.markdown("**Most similar theme pairs (flagged for review):**")
-        for a,b,s in top_pairs:
-            st.markdown(f"- {a} ⟷ {b}: {s:.2f}")
-        st.markdown("---")
-        st.success("Themes identified. Proceeding to tagging and analytics...")
 
     # 2) Classification (auto)
     if (st.session_state.narrative_data is not None
