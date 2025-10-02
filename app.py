@@ -1019,4 +1019,5 @@ with st.container():
             st.subheader("Executive Summary: 5 Key Takeaways")
             for i, takeaway in enumerate(st.session_state.takeaways_list):
                 st.markdown(f"**{i+1}.** {takeaway}")
+st.markdown("---")
 st.caption("_Developed by Trish Bailey_")
