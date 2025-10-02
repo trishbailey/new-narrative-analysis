@@ -1079,8 +1079,13 @@ if not simdf.empty:
     fig_sim = px.imshow(simdf, text_auto=False, aspect="auto",
                         title="Cosine similarity between themes (higher = more overlap)")
     fig_sim.update_layout(margin=dict(l=40, r=20, t=50, b=40))
-    st.plotly_chart(finalize_figure(fig_sim, "Theme overlap diagnostics"),
-                    use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(
+    finalize_figure(fig_sim, "Theme overlap diagnostics"),
+    use_container_width=True,
+    config={"displayModeBar": False},
+    # This is the patch: use a simple, unique string
+    key="theme_overlap_fig_sim_chart" 
+)
 
     # list the top 5 most similar pairs (excluding diagonal)
     pairs = []
