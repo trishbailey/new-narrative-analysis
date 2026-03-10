@@ -627,6 +627,19 @@ def load_meltwater(uploaded) -> pd.DataFrame:
         uploaded.seek(0)
         df0 = pd.read_excel(uploaded, engine='openpyxl')
 
+    # Fix any corrupt column names before validation (e.g. '¸ate' → 'Date')
+    fixed_cols = []
+    for col in df0.columns:
+        matched = False
+        for required_col in TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN]:
+            if col != required_col and col.endswith(required_col[1:]) and len(col) == len(required_col):
+                fixed_cols.append(required_col)
+                matched = True
+                break
+        if not matched:
+            fixed_cols.append(col)
+    df0.columns = fixed_cols
+
     if not _has_required(df0):
         if is_csv:
             df1 = None
