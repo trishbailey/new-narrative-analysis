@@ -884,6 +884,59 @@ def label_cluster_with_llm(cluster: dict, df: pd.DataFrame, api_key: str) -> dic
 # ---------------------------
 # Map-Reduce theme extraction
 # ---------------------------
+def force_consolidate_themes(themes: list[dict], api_key: str, target: int = 8) -> list[dict]:
+    """Ask LLM to hard-consolidate a theme list down to exactly target distinct themes."""
+    if len(themes) <= target:
+        return themes
+
+    themes_json = json.dumps([
+        {"narrative_title": t.get("narrative_title",""),
+         "summary": t.get("summary","")}
+        for t in themes
+    ], ensure_ascii=False)
+
+    system_prompt = (
+        f"You are consolidating a list of narrative themes into exactly {target} DISTINCT, "
+        f"non-overlapping themes. Themes that share the same core subject (e.g. multiple "
+        f"'fake pandemic' themes, multiple 'Trump Epstein files' themes) MUST be merged into one. "
+        f"Return a JSON array of exactly {target} objects, each with: "
+        f"narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array). "
+        f"Every theme must be clearly distinguishable from all others."
+    )
+    user_prompt = f"Themes to consolidate:\n{themes_json}"
+
+    payload = {
+        "model": GROK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.2
+    }
+    with st.spinner(f"Consolidating themes to {target} distinct narratives..."):
+        resp = call_grok_with_backoff(payload, api_key)
+    if not resp:
+        return themes[:target]
+    try:
+        result = json.loads(resp)
+        if isinstance(result, list) and len(result) > 0:
+            # Ensure all required fields present
+            out = []
+            for t in result:
+                if t.get("narrative_title"):
+                    out.append({
+                        "narrative_title": str(t.get("narrative_title","")).strip(),
+                        "summary": str(t.get("summary","")).strip(),
+                        "inclusion_rule": str(t.get("inclusion_rule","")).strip(),
+                        "exclusion_rules": t.get("exclusion_rules",[]) or [],
+                        "representative_terms": t.get("representative_terms",[]) or [],
+                        "positive_examples": [],
+                        "near_miss_examples": []
+                    })
+            return out[:target] if out else themes[:target]
+    except json.JSONDecodeError:
+        pass
+    return themes[:target]
 def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size: int, api_key: str) -> list[dict]:
     all_themes = []
 
