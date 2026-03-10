@@ -383,10 +383,24 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
         st.error("Seed labels lacked diversity. Try regenerating themes or increasing seed size.")
         return None
 
+    # Phase 2: Calibrated classifier
     st.success("Phase 2: Training Calibrated LinearSVC...")
+
+    # cv must not exceed the smallest class count in seed labels
+    min_class_count = df_sample['NARRATIVE_TAG'].value_counts().min()
+    cv_folds = max(2, min(3, min_class_count))
+
+    if min_class_count < 2:
+        st.error("At least one theme has fewer than 2 seed examples. Try increasing AI_SEED_SAMPLE_SIZE.")
+        return None
+
     model = Pipeline([
         ('tfidf', TfidfVectorizer(stop_words='english', max_features=5000)),
-        ('clf', CalibratedClassifierCV(LinearSVC(C=1.0, random_state=42, max_iter=5000), method='sigmoid', cv=3))
+        ('clf', CalibratedClassifierCV(
+            LinearSVC(C=1.0, random_state=42, max_iter=5000),
+            method='sigmoid',
+            cv=cv_folds
+        ))
     ])
     model.fit(df_sample['POST_TEXT'], df_sample['NARRATIVE_TAG'])
 
