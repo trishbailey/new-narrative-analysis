@@ -662,6 +662,9 @@ def load_meltwater(uploaded) -> pd.DataFrame:
             st.error(f"Missing required columns: {', '.join(missing)}")
             st.write("**Columns found in your file:**")
             st.write(sorted(list(have)))
+            st.write(f"**Shape:** {df0.shape}")
+            st.write("**First 3 rows:**")
+            st.dataframe(df0.head(3))
             raise ValueError(f"Missing required columns: {', '.join(missing)}")
     else:
         df = df0
