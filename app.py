@@ -581,38 +581,39 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     name = uploaded.name.lower()
     is_csv = name.endswith(".csv")
 
-    if is_csv:
-        uploaded.seek(0)
-        raw = uploaded.read()
-        df0 = None
-        last_error = {}
-
-        # Strip a corrupt/partial BOM if present (e.g. lone 0xb8 before FF FE)
-        # UTF-16 LE files sometimes have a damaged or missing BOM
-        decode_attempts = [
-            ('utf-16-le', ','),
-            ('utf-16-le', '\t'),
-            ('utf-16',    '\t'),
-            ('utf-16',    ','),
-            ('utf-8-sig', ','),
-            ('utf-8-sig', '\t'),
-            ('utf-8',     ','),
-            ('utf-8',     '\t'),
-            ('windows-1252', ','),
-            ('windows-1252', '\t'),
-            ('latin-1',   ','),
-            ('latin-1',   '\t'),
-        ]
+    import csv as csv_module
 
         for enc, sep in decode_attempts:
             try:
-                # Use errors='ignore' to skip illegal surrogates / corrupt bytes
                 text = raw.decode(enc, errors='ignore')
-                # Remove null bytes that UTF-16 decoding leaves behind
                 text = text.replace('\x00', '')
                 text = text.strip()
                 if not text:
                     continue
+
+                # Try strict first, then progressively more tolerant
+                for kwargs in [
+                    {"dtype": str, "sep": sep},
+                    {"dtype": str, "sep": sep, "on_bad_lines": "skip"},
+                    {"dtype": str, "sep": sep, "on_bad_lines": "skip", "quoting": csv_module.QUOTE_NONE, "escapechar": "\\"},
+                    {"dtype": str, "sep": sep, "on_bad_lines": "skip", "engine": "python"},
+                    {"dtype": str, "sep": sep, "on_bad_lines": "skip", "engine": "python", "quoting": csv_module.QUOTE_NONE, "escapechar": "\\"},
+                ]:
+                    try:
+                        candidate = pd.read_csv(io.StringIO(text), **kwargs)
+                        if len(candidate.columns) > 3:
+                            df0 = candidate
+                            break
+                    except Exception:
+                        continue
+
+                if df0 is not None:
+                    st.info(f"Loaded: encoding={enc}, sep={'TAB' if sep==chr(9) else sep}, shape={df0.shape}")
+                    break
+
+            except Exception as e:
+                last_error[f"{enc}/{sep}"] = str(e)
+                continue
                 candidate = pd.read_csv(io.StringIO(text), dtype=str, sep=sep)
                 if len(candidate.columns) > 3:
                     df0 = candidate
