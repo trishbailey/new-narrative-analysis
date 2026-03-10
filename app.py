@@ -36,9 +36,9 @@ OTHER_RATE_THRESHOLD = 0.35
 MAX_REFRESH_ROUNDS = 1
 
 THEME_SIM_THRESHOLD = 0.80
-THEME_TERM_JACCARD = 0.60
-CLUSTER_K_MIN = 6
-CLUSTER_K_MAX = 12
+THEME_TERM_JACCARD = 0.40
+CLUSTER_K_MIN = 4
+CLUSTER_K_MAX = 7
 CLUSTER_EXEMPLARS = 12
 TIEBREAK_MAX = 300
 ABSTAIN_PROB = 0.45
@@ -904,7 +904,7 @@ def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size: 
     if not all_themes:
         return []
 
-    merged = merge_theme_lists([all_themes], max_out=20)
+    merged = merge_theme_lists([all_themes], max_out=MAX_THEMES_OUTPUT)
     refined = audit_and_refine_themes(merged, api_key)
     return refined  # FIX: was missing return statement
 
@@ -1069,6 +1069,8 @@ with st.container():
         )
         if themes_merged:
             audited = audit_and_refine_themes(themes_merged, st.session_state.api_key)
+    # Hard cap after audit
+            audited = audited[:MAX_THEMES_OUTPUT]
             st.session_state.narrative_data = audited
             st.session_state.theme_titles = [t['narrative_title'] for t in audited if t.get('narrative_title')]
             st.rerun()
