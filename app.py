@@ -905,9 +905,12 @@ def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size: 
     if not all_themes:
         return []
 
-    merged = merge_theme_lists([all_themes], max_out=MAX_THEMES_OUTPUT)
+    merged = merge_theme_lists([all_themes], max_out=20)
     refined = audit_and_refine_themes(merged, api_key)
-    return refined  # FIX: was missing return statement
+    
+    # Final hard consolidation: ask LLM to produce exactly MAX_THEMES_OUTPUT distinct themes
+    consolidated = force_consolidate_themes(refined, api_key, target=MAX_THEMES_OUTPUT)
+    return consolidated
 
 
 def _theme_vector_strings(themes: list[dict]) -> list[str]:
