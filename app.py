@@ -587,32 +587,45 @@ def load_meltwater(uploaded) -> pd.DataFrame:
         df0 = None
         last_error = {}
 
-        for enc in ('utf-16', 'utf-16-le', 'utf-16-be', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+        # Strip a corrupt/partial BOM if present (e.g. lone 0xb8 before FF FE)
+        # UTF-16 LE files sometimes have a damaged or missing BOM
+        decode_attempts = [
+            ('utf-16-le', ','),
+            ('utf-16-le', '\t'),
+            ('utf-16',    '\t'),
+            ('utf-16',    ','),
+            ('utf-8-sig', ','),
+            ('utf-8-sig', '\t'),
+            ('utf-8',     ','),
+            ('utf-8',     '\t'),
+            ('windows-1252', ','),
+            ('windows-1252', '\t'),
+            ('latin-1',   ','),
+            ('latin-1',   '\t'),
+        ]
+
+        for enc, sep in decode_attempts:
             try:
-                text = raw.decode(enc)
-                # Strip null bytes that UTF-16 decoding sometimes leaves
+                # Use errors='ignore' to skip illegal surrogates / corrupt bytes
+                text = raw.decode(enc, errors='ignore')
+                # Remove null bytes that UTF-16 decoding leaves behind
                 text = text.replace('\x00', '')
-                # Try comma first, then tab (Meltwater sometimes exports TSV)
-                for sep in (',', '\t', ';'):
-                    try:
-                        candidate = pd.read_csv(io.StringIO(text), dtype=str, sep=sep)
-                        if len(candidate.columns) > 3:  # sanity check - real data has many cols
-                            df0 = candidate
-                            st.info(f"Loaded with encoding={enc}, separator='{sep}', shape={df0.shape}")
-                            break
-                    except Exception as e:
-                        last_error[f"{enc}/{sep}"] = str(e)
-                if df0 is not None:
+                text = text.strip()
+                if not text:
+                    continue
+                candidate = pd.read_csv(io.StringIO(text), dtype=str, sep=sep)
+                if len(candidate.columns) > 3:
+                    df0 = candidate
+                    st.info(f"Loaded: encoding={enc}, sep={'TAB' if sep==chr(9) else sep}, shape={df0.shape}")
                     break
-            except (UnicodeDecodeError, Exception) as e:
-                last_error[enc] = str(e)
+            except Exception as e:
+                last_error[f"{enc}/{sep}"] = str(e)
                 continue
 
         if df0 is None:
             st.error("All encoding attempts failed. Details:")
             for k, v in last_error.items():
                 st.write(f"- `{k}`: {v}")
-            # Show first 32 bytes as hex to help diagnose
             st.write(f"First 32 bytes (hex): `{raw[:32].hex()}`")
             raise ValueError("Could not decode CSV. See encoding errors above.")
     else:
