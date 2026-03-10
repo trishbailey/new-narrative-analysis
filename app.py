@@ -1011,6 +1011,15 @@ st.title("X Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
 
 with st.sidebar:
+    if st.button("🔄 Reset & Reprocess"):
+        for key in ['narrative_data', 'theme_titles', 'theme_explanations', 
+                    'classified_df', 'takeaways_list', 'sampling_indices', 
+                    'refresh_done', 'df_full']:
+            st.session_state[key] = None
+        st.session_state.theme_titles = []
+        st.session_state.refresh_done = 0
+        st.rerun()
+with st.sidebar:
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set '{XAI_API_KEY_ENV_VAR}'.")
     uploaded_file = st.file_uploader(
