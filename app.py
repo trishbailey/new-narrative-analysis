@@ -48,11 +48,12 @@ AI_SEED_SAMPLE_SIZE = 200
 MAX_POSTS_FOR_ANALYSIS = 150
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
 
-TEXT_COLUMNS = ['Opening Text', 'Headline', 'Hit Sentence']
-ENGAGEMENT_COLUMN = 'Likes'
-AUTHOR_COLUMN = 'Influencer'
-DATE_COLUMN = 'Date'
-TIME_COLUMN = 'Time'
+# Meltwater column mapping
+TEXT_COLUMNS = ['Opening Text', 'Title', 'Hit Sentence']   # 'Title' replaces 'Headline'
+ENGAGEMENT_COLUMN = 'Likes'                                 # unchanged
+AUTHOR_COLUMN = 'Author Name'                               # was 'Influencer'
+DATE_COLUMN = 'Date'                                        # unchanged
+TIME_COLUMN = 'Time'                                        # unchanged
 DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
 
 PRIMARY_COLOR = "#1E88E5"
