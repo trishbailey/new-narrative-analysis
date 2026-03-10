@@ -566,37 +566,37 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     is_csv = name.endswith(".csv")
 
     if is_csv:
-    uploaded.seek(0)
-    raw = uploaded.read()
-    df0 = None
-    for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
-        try:
-            text = raw.decode(enc)
-            df0 = pd.read_csv(io.StringIO(text), dtype=str)
-            break
-        except (UnicodeDecodeError, pd.errors.ParserError, Exception):
-            continue
-    if df0 is None:
-        raise ValueError("Could not decode CSV. Try saving the file as UTF-8 from Excel first.")
+        uploaded.seek(0)
+        raw = uploaded.read()
+        df0 = None
+        for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+            try:
+                text = raw.decode(enc)
+                df0 = pd.read_csv(io.StringIO(text), dtype=str)
+                break
+            except (UnicodeDecodeError, pd.errors.ParserError, Exception):
+                continue
+        if df0 is None:
+            raise ValueError("Could not decode CSV. Try saving the file as UTF-8 from Excel first.")
     else:
         uploaded.seek(0)
         df0 = pd.read_excel(uploaded, engine='openpyxl')
 
     if not _has_required(df0):
         if is_csv:
-    df1 = None
-    for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
-        try:
-            text = raw.decode(enc)
-            df1 = pd.read_csv(io.StringIO(text), header=None, dtype=str)
-            break
-        except (UnicodeDecodeError, pd.errors.ParserError, Exception):
-            continue
-    if df1 is not None:
-        df1.columns = df1.iloc[0].astype(str).str.strip()
-        df1 = df1.iloc[1:].reset_index(drop=True)
-    else:
-        df1 = pd.DataFrame()
+            df1 = None
+            for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+                try:
+                    text = raw.decode(enc)
+                    df1 = pd.read_csv(io.StringIO(text), header=None, dtype=str)
+                    break
+                except (UnicodeDecodeError, pd.errors.ParserError, Exception):
+                    continue
+            if df1 is not None:
+                df1.columns = df1.iloc[0].astype(str).str.strip()
+                df1 = df1.iloc[1:].reset_index(drop=True)
+            else:
+                df1 = pd.DataFrame()
         else:
             uploaded.seek(0)
             df1 = pd.read_excel(uploaded, engine='openpyxl', skiprows=1)
