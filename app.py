@@ -12,6 +12,7 @@ import plotly.io as pio
 import matplotlib.pyplot as plt
 import concurrent.futures
 import io
+import csv as csv_module
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.pairwise import cosine_similarity
 from difflib import SequenceMatcher
@@ -50,12 +51,12 @@ MAX_POSTS_FOR_ANALYSIS = 150
 CLASSIFICATION_DEFAULT = "Other/Unrelated"
 
 # Meltwater column mapping
-TEXT_COLUMNS = ['Opening Text', 'Title', 'Hit Sentence']   # 'Title' replaces 'Headline'
-ENGAGEMENT_COLUMN = 'Likes'                                 # unchanged
-AUTHOR_COLUMN = 'Author Name'                               # was 'Influencer'
-DATE_COLUMN = 'Date'                                        # unchanged
-TIME_COLUMN = 'Time'                                        # unchanged
-DATE_TIME_FORMAT = '%d-%b-%Y %I:%M%p'
+TEXT_COLUMNS = ['Opening Text', 'Title', 'Hit Sentence']
+ENGAGEMENT_COLUMN = 'Likes'
+AUTHOR_COLUMN = 'Author Name'
+DATE_COLUMN = 'Date'
+TIME_COLUMN = 'Time'
+DATE_TIME_FORMAT = '%m/%d/%Y'
 
 PRIMARY_COLOR = "#1E88E5"
 BG_COLOR = "#ffffff"
@@ -118,12 +119,12 @@ vibrant_layout.update({
     "colorway": VIBRANT_QUAL,
     "title": {"x": 0.0, "xanchor": "left", "y": 0.95, "yanchor": "top", "font": {"size": 20}},
     "margin": {"l": 80, "r": 40, "t": 60, "b": 60},
-    "paper_bgcolor": "white","plot_bgcolor": "white",
-    "xaxis": {"showgrid": True,"gridcolor": "#e9eaec","gridwidth": 1,"tickformat": ",","ticks": "","tickfont": {"size": 12,"color": "#111111"}},
-    "yaxis": {"showgrid": True,"gridcolor": "#e9eaec","gridwidth": 1,"tickformat": ",","ticks": "","tickfont": {"size": 12,"color": "#111111"}, "automargin": True},
-    "legend": {"orientation": "h","yanchor": "bottom","y": -0.25,"xanchor": "left","x": 0.0,"title": {"text": ""}, "itemclick": "toggleothers"},
+    "paper_bgcolor": "white", "plot_bgcolor": "white",
+    "xaxis": {"showgrid": True, "gridcolor": "#e9eaec", "gridwidth": 1, "tickformat": ",", "ticks": "", "tickfont": {"size": 12, "color": "#111111"}},
+    "yaxis": {"showgrid": True, "gridcolor": "#e9eaec", "gridwidth": 1, "tickformat": ",", "ticks": "", "tickfont": {"size": 12, "color": "#111111"}, "automargin": True},
+    "legend": {"orientation": "h", "yanchor": "bottom", "y": -0.25, "xanchor": "left", "x": 0.0, "title": {"text": ""}, "itemclick": "toggleothers"},
     "hovermode": "x unified",
-    "hoverlabel": {"bgcolor": "white","bordercolor": "#d1d5db","font": {"family": "Inter","size": 12,"color": "#111111"}}
+    "hoverlabel": {"bgcolor": "white", "bordercolor": "#d1d5db", "font": {"family": "Inter", "size": 12, "color": "#111111"}}
 })
 pio.templates["vibrant"] = pio.templates["plotly_white"]
 pio.templates["vibrant"].layout.update(vibrant_layout)
@@ -167,8 +168,8 @@ def configure_time_axis(fig, dates: pd.Series):
 def normalize_narratives(raw):
     if not isinstance(raw, list):
         return []
-    title_keys = {'narrative_title','title','narrative','theme','name'}
-    summary_keys = {'summary','desc','description','overview','rationale','explanation'}
+    title_keys = {'narrative_title', 'title', 'narrative', 'theme', 'name'}
+    summary_keys = {'summary', 'desc', 'description', 'overview', 'rationale', 'explanation'}
     out = []
     for item in raw:
         if isinstance(item, dict):
@@ -199,8 +200,8 @@ def compute_toxicity_scores(df_viz):
     df_viz['toxicity_density'] = df_viz['POST_TEXT'].apply(post_density)
     df_viz['is_toxic'] = df_viz['toxicity_density'] > TOXICITY_THRESHOLD
     theme_toxicity = df_viz.groupby('NARRATIVE_TAG').agg(
-        Avg_Density=('toxicity_density','mean'),
-        Pct_Toxic_Posts=('is_toxic','mean')
+        Avg_Density=('toxicity_density', 'mean'),
+        Pct_Toxic_Posts=('is_toxic', 'mean')
     ).reset_index()
     theme_toxicity['Pct_Toxic_Posts'] *= 100
     return df_viz, theme_toxicity.sort_values('Avg_Density', ascending=False)
@@ -232,11 +233,9 @@ def call_grok_with_backoff(payload, api_key, max_retries=5):
     return None
 
 # ---------------------------
-# LLM: Seed classification, theme explanations
+# LLM functions
 # ---------------------------
 def classify_post_for_seed(post_text: str, theme_titles: list, api_key: str) -> str:
-    """Classify a single post into one of the provided theme titles using the LLM."""
-    titles_json = json.dumps(theme_titles, ensure_ascii=False)
     system = (
         f"You are a precise text classifier. Assign the post to exactly one of the provided themes. "
         f"If no theme fits well, return exactly '{CLASSIFICATION_DEFAULT}'. "
@@ -257,10 +256,6 @@ def classify_post_for_seed(post_text: str, theme_titles: list, api_key: str) -> 
 
 
 def generate_theme_explanations(corpus_sample: str, theme_titles: list, api_key: str) -> list[dict]:
-    """
-    Ask the LLM to generate a short explanation for each identified theme
-    given the corpus sample. Returns a list of dicts with narrative_title and explanation.
-    """
     system_prompt = (
         "You are a social media analyst. For each theme title provided, write a concise 2–3 sentence "
         "explanation of what that theme covers, based on the corpus sample. "
@@ -292,15 +287,10 @@ def generate_theme_explanations(corpus_sample: str, theme_titles: list, api_key:
 
 
 def merge_theme_lists(theme_lists: list[list[dict]], max_out: int = 14) -> list[dict]:
-    """
-    Merge multiple lists of theme dicts into a deduplicated list capped at max_out.
-    Deduplication uses fuzzy title matching (SequenceMatcher) and token Jaccard similarity.
-    """
     combined = []
     for tl in theme_lists:
         if tl:
             combined.extend(tl)
-
     if not combined:
         return []
 
@@ -310,11 +300,9 @@ def merge_theme_lists(theme_lists: list[list[dict]], max_out: int = 14) -> list[
     def is_duplicate(a: dict, b: dict) -> bool:
         ta = a.get('narrative_title', '')
         tb = b.get('narrative_title', '')
-        # Fuzzy ratio
         ratio = SequenceMatcher(None, ta.lower(), tb.lower()).ratio()
         if ratio >= 0.80:
             return True
-        # Token Jaccard
         sa, sb = title_tokens(ta), title_tokens(tb)
         if sa and sb:
             jaccard = len(sa & sb) / len(sa | sb)
@@ -326,12 +314,10 @@ def merge_theme_lists(theme_lists: list[list[dict]], max_out: int = 14) -> list[
     for theme in combined:
         if not any(is_duplicate(theme, kept) for kept in deduped):
             deduped.append(theme)
-
     return deduped[:max_out]
 
 
 def tie_break_llm(post_text: str, themes: list[dict], api_key: str) -> str:
-    """Ask LLM to assign a theme using inclusion/exclusion rules."""
     themes_brief = [
         {
             "narrative_title": t.get("narrative_title", ""),
@@ -360,11 +346,6 @@ def tie_break_llm(post_text: str, themes: list[dict], api_key: str) -> str:
 
 
 def train_and_classify_hybrid(df_full, theme_titles, api_key):
-    """
-    Phase 1: LLM seed labels.
-    Phase 2: Calibrated LinearSVC for probabilities.
-    Phase 3: Predict; abstain to LLM tie-break when uncertain.
-    """
     st.info(f"Phase 1: Labeling {AI_SEED_SAMPLE_SIZE} examples with {CLASSIFICATION_MODEL}...")
     actual_seed = min(AI_SEED_SAMPLE_SIZE, len(df_full))
     df_sample = df_full.sample(actual_seed, random_state=42).copy()
@@ -384,10 +365,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
         st.error("Seed labels lacked diversity. Try regenerating themes or increasing seed size.")
         return None
 
-    # Phase 2: Calibrated classifier
     st.success("Phase 2: Training Calibrated LinearSVC...")
-
-    # cv must not exceed the smallest class count in seed labels
     min_class_count = df_sample['NARRATIVE_TAG'].value_counts().min()
     cv_folds = max(2, min(3, min_class_count))
 
@@ -417,7 +395,6 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
     sorted_idx = np.argsort(proba, axis=1)
     second_best = proba[np.arange(proba.shape[0]), sorted_idx[:, -2]]
     margin = top_prob - second_best
-
     labels = np.array([classes[i] for i in top_idx])
 
     uncertain_mask = (top_prob < ABSTAIN_PROB) | (margin < ABSTAIN_MARGIN)
@@ -433,8 +410,7 @@ def train_and_classify_hybrid(df_full, theme_titles, api_key):
             for fut in concurrent.futures.as_completed(futs):
                 fixed.append(fut.result())
         for local_i, lab in enumerate(fixed):
-            abs_i = to_fix[local_i]
-            labels[abs_i] = lab
+            labels[to_fix[local_i]] = lab
 
     df_rest['NARRATIVE_TAG'] = labels
     st.success("Full dataset classification complete.")
@@ -581,7 +557,26 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     name = uploaded.name.lower()
     is_csv = name.endswith(".csv")
 
-    import csv as csv_module
+    if is_csv:
+        uploaded.seek(0)
+        raw = uploaded.read()
+        df0 = None
+        last_error = {}
+
+        decode_attempts = [
+            ('utf-16-le', '\t'),
+            ('utf-16-le', ','),
+            ('utf-16',    '\t'),
+            ('utf-16',    ','),
+            ('utf-8-sig', '\t'),
+            ('utf-8-sig', ','),
+            ('utf-8',     '\t'),
+            ('utf-8',     ','),
+            ('windows-1252', '\t'),
+            ('windows-1252', ','),
+            ('latin-1',   '\t'),
+            ('latin-1',   ','),
+        ]
 
         for enc, sep in decode_attempts:
             try:
@@ -591,7 +586,6 @@ def load_meltwater(uploaded) -> pd.DataFrame:
                 if not text:
                     continue
 
-                # Try strict first, then progressively more tolerant
                 for kwargs in [
                     {"dtype": str, "sep": sep},
                     {"dtype": str, "sep": sep, "on_bad_lines": "skip"},
@@ -608,17 +602,9 @@ def load_meltwater(uploaded) -> pd.DataFrame:
                         continue
 
                 if df0 is not None:
-                    st.info(f"Loaded: encoding={enc}, sep={'TAB' if sep==chr(9) else sep}, shape={df0.shape}")
+                    st.info(f"Loaded: encoding={enc}, sep={'TAB' if sep == chr(9) else sep}, shape={df0.shape}")
                     break
 
-            except Exception as e:
-                last_error[f"{enc}/{sep}"] = str(e)
-                continue
-                candidate = pd.read_csv(io.StringIO(text), dtype=str, sep=sep)
-                if len(candidate.columns) > 3:
-                    df0 = candidate
-                    st.info(f"Loaded: encoding={enc}, sep={'TAB' if sep==chr(9) else sep}, shape={df0.shape}")
-                    break
             except Exception as e:
                 last_error[f"{enc}/{sep}"] = str(e)
                 continue
@@ -629,6 +615,7 @@ def load_meltwater(uploaded) -> pd.DataFrame:
                 st.write(f"- `{k}`: {v}")
             st.write(f"First 32 bytes (hex): `{raw[:32].hex()}`")
             raise ValueError("Could not decode CSV. See encoding errors above.")
+
     else:
         uploaded.seek(0)
         df0 = pd.read_excel(uploaded, engine='openpyxl')
@@ -636,13 +623,27 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     if not _has_required(df0):
         if is_csv:
             df1 = None
-            for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+            for enc, sep in [('utf-16-le', '\t'), ('utf-16-le', ','), ('utf-8-sig', '\t'),
+                             ('utf-8', '\t'), ('latin-1', '\t'), ('latin-1', ',')]:
                 try:
-                    text = raw.decode(enc)
-                    df1 = pd.read_csv(io.StringIO(text), header=None, dtype=str)
-                    break
-                except (UnicodeDecodeError, pd.errors.ParserError, Exception):
+                    text = raw.decode(enc, errors='ignore').replace('\x00', '').strip()
+                    for kwargs in [
+                        {"dtype": str, "sep": sep, "header": None},
+                        {"dtype": str, "sep": sep, "header": None, "on_bad_lines": "skip"},
+                        {"dtype": str, "sep": sep, "header": None, "on_bad_lines": "skip", "engine": "python"},
+                    ]:
+                        try:
+                            candidate = pd.read_csv(io.StringIO(text), **kwargs)
+                            if len(candidate.columns) > 3:
+                                df1 = candidate
+                                break
+                        except Exception:
+                            continue
+                    if df1 is not None:
+                        break
+                except Exception:
                     continue
+
             if df1 is not None:
                 df1.columns = df1.iloc[0].astype(str).str.strip()
                 df1 = df1.iloc[1:].reset_index(drop=True)
@@ -658,13 +659,16 @@ def load_meltwater(uploaded) -> pd.DataFrame:
             have = set(df0.columns.astype(str).str.strip())
             need = set(TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN])
             missing = [c for c in need if c not in have]
+            st.error(f"Missing required columns: {', '.join(missing)}")
+            st.write("**Columns found in your file:**")
+            st.write(sorted(list(have)))
             raise ValueError(f"Missing required columns: {', '.join(missing)}")
     else:
         df = df0
 
     df.columns = df.columns.astype(str).str.strip()
     if any(str(c).startswith("Unnamed") for c in df.columns):
-        st.warning("Detected 'Unnamed' columns—header may be malformed.")
+        st.warning("Detected 'Unnamed' columns — header may be malformed.")
 
     def _safe_join(row):
         parts = []
@@ -896,90 +900,8 @@ def label_cluster_with_llm(cluster: dict, df: pd.DataFrame, api_key: str) -> dic
     }
 
 # ---------------------------
-# Map-Reduce theme extraction
+# Theme QA & consolidation
 # ---------------------------
-def force_consolidate_themes(themes: list[dict], api_key: str, target: int = 8) -> list[dict]:
-    """Ask LLM to hard-consolidate a theme list down to exactly target distinct themes."""
-    if len(themes) <= target:
-        return themes
-
-    themes_json = json.dumps([
-        {"narrative_title": t.get("narrative_title",""),
-         "summary": t.get("summary","")}
-        for t in themes
-    ], ensure_ascii=False)
-
-    system_prompt = (
-        f"You are consolidating a list of narrative themes into exactly {target} DISTINCT, "
-        f"non-overlapping themes. Themes that share the same core subject (e.g. multiple "
-        f"'fake pandemic' themes, multiple 'Trump Epstein files' themes) MUST be merged into one. "
-        f"Return a JSON array of exactly {target} objects, each with: "
-        f"narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array). "
-        f"Every theme must be clearly distinguishable from all others."
-    )
-    user_prompt = f"Themes to consolidate:\n{themes_json}"
-
-    payload = {
-        "model": GROK_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.2
-    }
-    with st.spinner(f"Consolidating themes to {target} distinct narratives..."):
-        resp = call_grok_with_backoff(payload, api_key)
-    if not resp:
-        return themes[:target]
-    try:
-        result = json.loads(resp)
-        if isinstance(result, list) and len(result) > 0:
-            # Ensure all required fields present
-            out = []
-            for t in result:
-                if t.get("narrative_title"):
-                    out.append({
-                        "narrative_title": str(t.get("narrative_title","")).strip(),
-                        "summary": str(t.get("summary","")).strip(),
-                        "inclusion_rule": str(t.get("inclusion_rule","")).strip(),
-                        "exclusion_rules": t.get("exclusion_rules",[]) or [],
-                        "representative_terms": t.get("representative_terms",[]) or [],
-                        "positive_examples": [],
-                        "near_miss_examples": []
-                    })
-            return out[:target] if out else themes[:target]
-    except json.JSONDecodeError:
-        pass
-    return themes[:target]
-def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size: int, api_key: str) -> list[dict]:
-    all_themes = []
-
-    for i in range(0, len(indices), batch_size):
-        sub_idx = indices[i:i + batch_size]
-        k_guess = int(np.clip(round(len(sub_idx) / 70), CLUSTER_K_MIN, CLUSTER_K_MAX))
-        clusters = build_cluster_views(df, sub_idx, k_guess)
-
-        out = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-            futures = [ex.submit(label_cluster_with_llm, c, df, api_key) for c in clusters]
-            for fut in concurrent.futures.as_completed(futures):
-                theme = fut.result()
-                if theme:
-                    out.append(theme)
-        if out:
-            all_themes.extend(out)
-
-    if not all_themes:
-        return []
-
-    merged = merge_theme_lists([all_themes], max_out=20)
-    refined = audit_and_refine_themes(merged, api_key)
-    
-    # Final hard consolidation: ask LLM to produce exactly MAX_THEMES_OUTPUT distinct themes
-    consolidated = force_consolidate_themes(refined, api_key, target=MAX_THEMES_OUTPUT)
-    return consolidated
-
-
 def _theme_vector_strings(themes: list[dict]) -> list[str]:
     blobs = []
     for t in themes:
@@ -1005,7 +927,7 @@ def refine_pair_with_llm(A: dict, B: dict, api_key: str) -> dict | tuple[dict, d
         "{\"action\":\"keep_both\",\"theme_a\":{...},\"theme_b\":{...}}. "
         "Each theme object must have: narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array)."
     )
-    user_msg = json.dumps({"theme_a": A, "theme_b": B}, ensure_ascii=False)  # FIX: was missing user message
+    user_msg = json.dumps({"theme_a": A, "theme_b": B}, ensure_ascii=False)
     payload = {
         "model": GROK_MODEL,
         "messages": [
@@ -1062,17 +984,100 @@ def audit_and_refine_themes(themes: list[dict], api_key: str) -> list[dict]:
                         break
     return [t for k, t in enumerate(keep) if k not in removed]
 
+
+def force_consolidate_themes(themes: list[dict], api_key: str, target: int = MAX_THEMES_OUTPUT) -> list[dict]:
+    """Ask LLM to hard-consolidate a theme list down to exactly target distinct themes."""
+    if len(themes) <= target:
+        return themes
+
+    themes_json = json.dumps([
+        {"narrative_title": t.get("narrative_title", ""),
+         "summary": t.get("summary", "")}
+        for t in themes
+    ], ensure_ascii=False)
+
+    system_prompt = (
+        f"You are consolidating a list of narrative themes into exactly {target} DISTINCT, "
+        f"non-overlapping themes. Themes that share the same core subject (e.g. multiple "
+        f"'fake pandemic' themes, multiple 'Trump Epstein files' themes) MUST be merged into one. "
+        f"Return a JSON array of exactly {target} objects, each with: "
+        f"narrative_title, summary, inclusion_rule, exclusion_rules (array), representative_terms (array). "
+        f"Every theme must be clearly distinguishable from all others."
+    )
+    user_prompt = f"Themes to consolidate:\n{themes_json}"
+
+    payload = {
+        "model": GROK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.2
+    }
+    with st.spinner(f"Consolidating themes to {target} distinct narratives..."):
+        resp = call_grok_with_backoff(payload, api_key)
+    if not resp:
+        return themes[:target]
+    try:
+        result = json.loads(resp)
+        if isinstance(result, list) and len(result) > 0:
+            out = []
+            for t in result:
+                if t.get("narrative_title"):
+                    out.append({
+                        "narrative_title": str(t.get("narrative_title", "")).strip(),
+                        "summary": str(t.get("summary", "")).strip(),
+                        "inclusion_rule": str(t.get("inclusion_rule", "")).strip(),
+                        "exclusion_rules": t.get("exclusion_rules", []) or [],
+                        "representative_terms": t.get("representative_terms", []) or [],
+                        "positive_examples": [],
+                        "near_miss_examples": []
+                    })
+            return out[:target] if out else themes[:target]
+    except json.JSONDecodeError:
+        pass
+    return themes[:target]
+
+# ---------------------------
+# Map-Reduce theme extraction
+# ---------------------------
+def extract_themes_map_reduce(df: pd.DataFrame, indices: list[int], batch_size: int, api_key: str) -> list[dict]:
+    all_themes = []
+
+    for i in range(0, len(indices), batch_size):
+        sub_idx = indices[i:i + batch_size]
+        k_guess = int(np.clip(round(len(sub_idx) / 70), CLUSTER_K_MIN, CLUSTER_K_MAX))
+        clusters = build_cluster_views(df, sub_idx, k_guess)
+
+        out = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            futures = [ex.submit(label_cluster_with_llm, c, df, api_key) for c in clusters]
+            for fut in concurrent.futures.as_completed(futures):
+                theme = fut.result()
+                if theme:
+                    out.append(theme)
+        if out:
+            all_themes.extend(out)
+
+    if not all_themes:
+        return []
+
+    merged = merge_theme_lists([all_themes], max_out=20)
+    refined = audit_and_refine_themes(merged, api_key)
+    consolidated = force_consolidate_themes(refined, api_key, target=MAX_THEMES_OUTPUT)
+    return consolidated
+
 # ---------------------------
 # Session State
 # ---------------------------
-if 'df_full' not in st.session_state: st.session_state.df_full = None
-if 'narrative_data' not in st.session_state: st.session_state.narrative_data = None
-if 'theme_titles' not in st.session_state: st.session_state.theme_titles = []
+if 'df_full' not in st.session_state:         st.session_state.df_full = None
+if 'narrative_data' not in st.session_state:  st.session_state.narrative_data = None
+if 'theme_titles' not in st.session_state:    st.session_state.theme_titles = []
 if 'theme_explanations' not in st.session_state: st.session_state.theme_explanations = None
-if 'classified_df' not in st.session_state: st.session_state.classified_df = None
-if 'takeaways_list' not in st.session_state: st.session_state.takeaways_list = None
+if 'classified_df' not in st.session_state:   st.session_state.classified_df = None
+if 'takeaways_list' not in st.session_state:  st.session_state.takeaways_list = None
 if 'sampling_indices' not in st.session_state: st.session_state.sampling_indices = None
-if 'refresh_done' not in st.session_state: st.session_state.refresh_done = 0
+if 'refresh_done' not in st.session_state:    st.session_state.refresh_done = 0
 
 XAI_KEY = os.getenv(XAI_API_KEY_ENV_VAR)
 st.session_state.api_key = XAI_KEY
@@ -1080,27 +1085,32 @@ st.session_state.api_key = XAI_KEY
 st.title("X Narrative Analysis Dashboard")
 st.markdown("Automated thematic extraction and quantitative analysis of Meltwater data.")
 
+# ---------------------------
+# Sidebar (single block)
+# ---------------------------
 with st.sidebar:
     if st.button("🔄 Reset & Reprocess"):
-        for key in ['narrative_data', 'theme_titles', 'theme_explanations', 
-                    'classified_df', 'takeaways_list', 'sampling_indices', 
+        for key in ['narrative_data', 'theme_titles', 'theme_explanations',
+                    'classified_df', 'takeaways_list', 'sampling_indices',
                     'refresh_done', 'df_full']:
             st.session_state[key] = None
         st.session_state.theme_titles = []
         st.session_state.refresh_done = 0
         st.rerun()
-with st.sidebar:
+
     if not st.session_state.api_key:
         st.error(f"FATAL ERROR: Grok API Key not found. Please set '{XAI_API_KEY_ENV_VAR}'.")
+
     uploaded_file = st.file_uploader(
         "Upload Meltwater Data (.xlsx or .csv)",
         type=['xlsx', 'csv'],
         help="Upload your Meltwater export as Excel (.xlsx) or CSV (.csv)."
     )
+
     if st.session_state.classified_df is not None and not st.session_state.classified_df.empty:
         st.markdown("---")
-        csv = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Tagged Data (CSV)", data=csv,
+        csv_out = st.session_state.classified_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Tagged Data (CSV)", data=csv_out,
                            file_name='meltwater_narrative_analysis.csv',
                            mime='text/csv', type="primary")
 
@@ -1113,6 +1123,7 @@ if not st.session_state.api_key or uploaded_file is None:
 # Main Auto-Chain Pipeline
 # ---------------------------
 with st.container():
+
     # 0) Load once
     if st.session_state.df_full is None:
         try:
@@ -1149,7 +1160,6 @@ with st.container():
         )
         if themes_merged:
             audited = audit_and_refine_themes(themes_merged, st.session_state.api_key)
-    # Hard cap after audit
             audited = audited[:MAX_THEMES_OUTPUT]
             st.session_state.narrative_data = audited
             st.session_state.theme_titles = [t['narrative_title'] for t in audited if t.get('narrative_title')]
@@ -1189,7 +1199,7 @@ with st.container():
             if inc:
                 st.caption(f"_Inclusion rule_: {inc}")
             if exc:
-                st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")  # FIX: removed duplicate block
+                st.caption(f"_Exclusion rules_: {', '.join(exc[:3])}")
 
     # 2) Classification
     if (st.session_state.narrative_data is not None
@@ -1218,7 +1228,7 @@ with st.container():
                     st.session_state.df_full, other_abs_idx, batch_size=300, api_key=st.session_state.api_key
                 )
                 if new_themes:
-                    merged = merge_theme_lists([st.session_state.narrative_data, new_themes], max_out=14)
+                    merged = merge_theme_lists([st.session_state.narrative_data, new_themes], max_out=MAX_THEMES_OUTPUT)
                     st.session_state.narrative_data = merged
                     st.session_state.theme_titles = [t['narrative_title'] for t in merged if t.get('narrative_title')]
                     df_re = train_and_classify_hybrid(
@@ -1238,6 +1248,7 @@ with st.container():
         if df_viz.empty:
             st.warning("No posts were classified into primary themes OR no valid dates. Dashboard cannot be generated.")
         else:
+            # Volume by theme
             st.markdown("### Post Volume by Theme")
             theme_metrics = df_viz.groupby('NARRATIVE_TAG').agg(Post_Volume=('POST_TEXT', 'size')).reset_index()
             theme_metrics = theme_metrics.sort_values('Post_Volume', ascending=False)
@@ -1258,6 +1269,7 @@ with st.container():
             fig_bar = finalize_figure(fig_bar, "Post volume by narrative theme", "Sorted by total posts", height=500)
             st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
+            # Trend over time
             st.markdown("### Narrative Volume Trend Over Time")
             df_trends = (df_viz.groupby([df_viz['DATETIME'].dt.date, 'NARRATIVE_TAG'])
                          .size().reset_index(name='Post_Volume'))
@@ -1277,22 +1289,26 @@ with st.container():
             else:
                 st.warning("Trend chart requires posts across at least two unique days.")
 
+            # Toxicity
             st.markdown("### Toxicity Density by Narrative Theme")
             df_viz, theme_tox = compute_toxicity_scores(df_viz)
             fig_tox = plot_toxicity_by_theme(theme_tox)
             st.plotly_chart(fig_tox, use_container_width=True, config={"displayModeBar": False})
             st.caption(f"Based on {len(TOXIC_KEYWORDS)} keywords; density = toxic matches / total words per post.")
 
+            # Theme influencer share
             st.markdown("### Influencer Share of Engagement (Top Authors Only)")
             for theme in df_viz['NARRATIVE_TAG'].unique():
                 fig_theme = plot_theme_influencer_share(df_viz, theme, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=5)
                 if fig_theme:
                     st.plotly_chart(fig_theme, use_container_width=True, config={"displayModeBar": False})
 
+            # Overall top authors
             st.markdown("### Top 10 Overall Authors by Total Likes")
             fig_overall = plot_overall_author_ranking(dfc, AUTHOR_COLUMN, ENGAGEMENT_COLUMN, top_n=10)
             st.plotly_chart(fig_overall, use_container_width=True, config={"displayModeBar": False})
 
+        # Insights
         st.markdown("---")
         st.header("Insights from the Data")
         if st.session_state.takeaways_list is None:
