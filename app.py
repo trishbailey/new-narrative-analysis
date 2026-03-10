@@ -566,17 +566,18 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     is_csv = name.endswith(".csv")
 
     if is_csv:
-        uploaded.seek(0)
-        raw = uploaded.read()
-        df0 = None
-        for enc in ('utf-16', 'utf-8-sig', 'windows-1252', 'latin-1'):
-            try:
-                df0 = pd.read_csv(io.BytesIO(raw), dtype=str, encoding=enc)
-                break
-            except (UnicodeDecodeError, Exception):
-                continue
-        if df0 is None:
-            raise ValueError("Could not decode CSV. Try saving the file as UTF-8 from Excel first.")
+    uploaded.seek(0)
+    raw = uploaded.read()
+    df0 = None
+    for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+        try:
+            text = raw.decode(enc)
+            df0 = pd.read_csv(io.StringIO(text), dtype=str)
+            break
+        except (UnicodeDecodeError, pd.errors.ParserError, Exception):
+            continue
+    if df0 is None:
+        raise ValueError("Could not decode CSV. Try saving the file as UTF-8 from Excel first.")
     else:
         uploaded.seek(0)
         df0 = pd.read_excel(uploaded, engine='openpyxl')
