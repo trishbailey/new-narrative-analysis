@@ -548,7 +548,14 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
 # Data loading
 # ---------------------------
 def _has_required(df: pd.DataFrame) -> bool:
-    cols = set(df.columns.astype(str).str.strip().str.replace('\ufeff', '', regex=False))
+    cols = set(
+        df.columns.astype(str)
+        .str.strip()
+        .str.replace('\ufeff', '', regex=False)
+        .str.encode('ascii', errors='ignore')
+        .str.decode('ascii')
+        .str.strip()
+    )
     required = set(TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN])
     return required.issubset(cols)
 
@@ -669,10 +676,20 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     else:
         df = df0
 
-    df.columns = df.columns.astype(str).str.strip().str.replace('\ufeff', '', regex=False)
+    df.columns = (df.columns.astype(str)
+                  .str.strip()
+                  .str.replace('\ufeff', '', regex=False)
+                  .str.encode('ascii', errors='ignore')
+                  .str.decode('ascii')
+                  .str.strip())
+    # Fix corrupt first-column name (e.g. '¸ate' should be 'Date')
+    first_col = df.columns[0]
+    if first_col != DATE_COLUMN and first_col.endswith(DATE_COLUMN[1:]):
+        df.columns = [DATE_COLUMN] + list(df.columns[1:])
+        st.info(f"Fixed corrupt first column name '{first_col}' → '{DATE_COLUMN}'")
+
     if any(str(c).startswith("Unnamed") for c in df.columns):
         st.warning("Detected 'Unnamed' columns — header may be malformed.")
-
     def _safe_join(row):
         parts = []
         for col in TEXT_COLUMNS:
