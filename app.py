@@ -584,18 +584,19 @@ def load_meltwater(uploaded) -> pd.DataFrame:
 
     if not _has_required(df0):
         if is_csv:
-            df1 = None
-            for enc in ('utf-16', 'utf-8-sig', 'windows-1252', 'latin-1'):
-                try:
-                    df1 = pd.read_csv(io.BytesIO(raw), header=None, dtype=str, encoding=enc)
-                    break
-                except (UnicodeDecodeError, Exception):
-                    continue
-            if df1 is not None:
-                df1.columns = df1.iloc[0].astype(str).str.strip()
-                df1 = df1.iloc[1:].reset_index(drop=True)
-            else:
-                df1 = pd.DataFrame()
+    df1 = None
+    for enc in ('utf-16', 'utf-8-sig', 'utf-8', 'windows-1252', 'latin-1'):
+        try:
+            text = raw.decode(enc)
+            df1 = pd.read_csv(io.StringIO(text), header=None, dtype=str)
+            break
+        except (UnicodeDecodeError, pd.errors.ParserError, Exception):
+            continue
+    if df1 is not None:
+        df1.columns = df1.iloc[0].astype(str).str.strip()
+        df1 = df1.iloc[1:].reset_index(drop=True)
+    else:
+        df1 = pd.DataFrame()
         else:
             uploaded.seek(0)
             df1 = pd.read_excel(uploaded, engine='openpyxl', skiprows=1)
