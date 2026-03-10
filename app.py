@@ -548,7 +548,7 @@ def plot_overall_author_ranking(df_classified, author_col, engagement_col, top_n
 # Data loading
 # ---------------------------
 def _has_required(df: pd.DataFrame) -> bool:
-    cols = set(df.columns.astype(str).str.strip())
+    cols = set(df.columns.astype(str).str.strip().str.replace('\ufeff', '', regex=False))
     required = set(TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN])
     return required.issubset(cols)
 
@@ -656,7 +656,7 @@ def load_meltwater(uploaded) -> pd.DataFrame:
         if not df1.empty and _has_required(df1):
             df = df1
         else:
-            have = set(df0.columns.astype(str).str.strip())
+            have = set(df0.columns.astype(str).str.strip().str.replace('\ufeff', '', regex=False))
             need = set(TEXT_COLUMNS + [ENGAGEMENT_COLUMN, AUTHOR_COLUMN, DATE_COLUMN, TIME_COLUMN])
             missing = [c for c in need if c not in have]
             st.error(f"Missing required columns: {', '.join(missing)}")
@@ -669,7 +669,7 @@ def load_meltwater(uploaded) -> pd.DataFrame:
     else:
         df = df0
 
-    df.columns = df.columns.astype(str).str.strip()
+    df.columns = df.columns.astype(str).str.strip().str.replace('\ufeff', '', regex=False)
     if any(str(c).startswith("Unnamed") for c in df.columns):
         st.warning("Detected 'Unnamed' columns — header may be malformed.")
 
